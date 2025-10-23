@@ -1,0 +1,55 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15
+    restart: always
+    environment:
+      POSTGRES_DB: zammad_sync
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: changeme  # Change in production
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/alembic.ini:/etc/alembic.ini:ro  # Optional for migrations
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    restart: always
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://postgres:changeme@db:5432/zammad_sync
+      SECRET_KEY: your-secret-key-here  # Generate and set
+      ENCRYPTION_KEY: your-encryption-key-here  # Generate and set
+      ADMIN_USERNAME: admin
+      ADMIN_PASSWORD: changeme  # Change for security
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      SYNC_SCHEDULE_HOURS: 6
+      # Connector envs for testing (use mocks or real)
+      # ZAMMAD_BASE_URL: http://zammad:80
+      # ZAMMAD_API_TOKEN: your_token
+      # KIMAI_BASE_URL: http://kimai:8001
+      # KIMAI_API_TOKEN: your_token
+      # KIMAI_DEFAULT_PROJECT_ID: 1
+    volumes:
+      - ./backend:/app  # For hot-reload during dev
+      - ./backend/.env:/app/.env:ro  # If .env exists; otherwise use env vars above
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s  # Allow time for migrations
+
+volumes:
+  postgres_data:

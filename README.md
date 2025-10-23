@@ -139,16 +139,68 @@ External: Zammad ──webhook──> System ──sync──> Kimai
 
 ### Docker Deployment
 
+This project uses Docker and Docker Compose to create an isolated, reproducible environment for development and testing. The setup includes the PostgreSQL database and FastAPI backend. Frontend and Nginx will be added in future phases.
+
+#### Prerequisites
+- Install Docker Desktop for Windows (from [docker.com](https://www.docker.com/products/docker-desktop/)). Enable WSL 2 backend recommended.
+- Ensure the project directory is accessible (OneDrive files are supported, but avoid large sync delays).
+- Generate secret keys if needed: Run `python -c "import secrets; print('SECRET_KEY=' + repr(secrets.token_urlsafe(32)))"` and `python -c "import secrets; print('ENCRYPTION_KEY=' + repr(secrets.token_urlsafe(32)))"` in the backend dir.
+
+#### Customization
+Before building, customize environment variables in `docker-compose.yml` or create `backend/.env`:
+- Set `POSTGRES_PASSWORD` in db service (default: `changeme`).
+- Update `SECRET_KEY` and `ENCRYPTION_KEY` in backend environment (required for auth/encryption).
+- Set `ADMIN_PASSWORD` for the demo admin user.
+- For connector testing, add Zammad/Kimai env vars (e.g., `ZAMMAD_BASE_URL=http://host.docker.internal:8080` for local Zammad Docker; generate API tokens).
+- CORS: Adjust `CORS_ORIGINS` for your frontend ports.
+
+#### Building and Running
+1. In the project root (using cmd or PowerShell):
+   ```bash
+   # Build images (backend from Dockerfile, db from postgres:15)
+   docker-compose build
+
+   # Start services in detached mode (db first, then backend with migration)
+   docker-compose up -d
+
+   # Check status
+   docker-compose ps
+   ```
+2. Wait ~1-2 min for db init and backend migrations (alembic upgrade head runs automatically).
+3. Verify:
+   - Health: `curl http://localhost:8000/api/health` or browse to it.
+   - API Docs: Open `http://localhost:8000/docs` in browser (Swagger UI for testing endpoints).
+   - Logs: `docker-compose logs -f backend` (watch for scheduler start, errors).
+   - DB: Connect pgAdmin/psql to `localhost:5432` (user: postgres, pass: changeme, db: zammad_sync) to query tables like connectors, conflicts.
+
+#### Testing in Docker
+- **API Testing**: Use Swagger at `/docs` to authenticate (POST `/token` with admin/changeme), create/test connectors, view conflicts.
+- **Sync Testing**: The APScheduler runs every 6 hours (configurable). Check logs for periodic sync attempts. For manual, endpoints pending.
+- **With Mocks**: Add Zammad/Kimai Docker services to compose (e.g., `zammad: image: zammad/zammad, ports: - "8080:80"`), update env vars to service names (e.g., `ZAMMAD_BASE_URL: http://zammad:80`).
+- **Hot-Reload**: Code changes in `./backend` auto-reload due to volume mount (restart backend if needed: `docker-compose restart backend`).
+- **Debug**: If build fails (e.g., deps), run `docker-compose build --no-cache backend`. For db connection issues, increase start_period.
+
+#### Cleanup and Management
 ```bash
-# Build and start all services
-docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
+# Stop and remove containers
 docker-compose down
+
+# Stop and remove volumes (reset DB)
+docker-compose down -v
+
+# Remove images (rebuild fresh)
+docker-compose down --rmi all
+
+# Prune unused resources
+docker system prune
 ```
+
+#### Security Notes
+- Defaults are for dev only; change passwords/secrets for production.
+- Volumes persist data; use `-v` to reset.
+- For production: Add Nginx for frontend/static, use secrets management (Docker secrets), push to GHCR via CI.
+
+This setup ensures consistent testing on Windows, isolating the service from host Python/DB installs.
 
 ## Configuration
 
@@ -257,8 +309,8 @@ SYNC_SCHEDULE_HOURS=6
 - [ ] Audit log viewer
 
 ### Phase 6: Docker & Deployment
-- [ ] Dockerfiles
-- [ ] Docker Compose
+- [x] Dockerfiles
+- [x] Docker Compose
 - [ ] Nginx configuration
 - [ ] Production setup guide
 
