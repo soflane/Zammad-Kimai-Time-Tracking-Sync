@@ -9,7 +9,7 @@ alembic==1.12.1
 psycopg2-binary==2.9.9
 
 # Data Validation
-pydantic==2.5.0
+pydantic==2.12.3
 pydantic-settings==2.1.0
 
 # Authentication & Security
