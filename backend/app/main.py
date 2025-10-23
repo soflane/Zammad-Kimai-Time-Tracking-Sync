@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 
+from app.api.v1.api import api_router
 from app.config import settings
 from app import __version__
 from app.auth import create_access_token, verify_password, get_password_hash
@@ -114,15 +115,7 @@ async def root():
     }
 
 
-# API routers will be added here as we build them
-# from app.api import auth, connectors, mappings, sync, conflicts, audit, webhook
-# app.include_router(auth.router, prefix="/api/auth", tags=["authentication"])
-# app.include_router(connectors.router, prefix="/api/connectors", tags=["connectors"])
-# app.include_router(mappings.router, prefix="/api/mappings", tags=["mappings"])
-# app.include_router(sync.router, prefix="/api/sync", tags=["sync"])
-# app.include_router(conflicts.router, prefix="/api/conflicts", tags=["conflicts"])
-# app.include_router(audit.router, prefix="/api/audit", tags=["audit"])
-# app.include_router(webhook.router, prefix="/api/webhook", tags=["webhook"])
+app.include_router(api_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     import uvicorn

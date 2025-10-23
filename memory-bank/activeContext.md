@@ -1,7 +1,7 @@
 # Active Context
 
 ## Current Focus
-Backend foundation complete! Database models, migrations setup, and FastAPI skeleton are ready.
+Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, and normalizer service are implemented. Ready to proceed with reconciliation engine.
 
 ## Recent Actions
 1. Created comprehensive memory bank documentation
@@ -19,15 +19,27 @@ Backend foundation complete! Database models, migrations setup, and FastAPI skel
    - Security scanning with Trivy
    - Multi-arch Docker builds (amd64, arm64)
    - Container registry integration (GHCR)
+5. **Implemented Authentication System**:
+   - Created `backend/app/auth.py` for JWT token management and password hashing.
+   - Created `backend/app/schemas/auth.py` for Pydantic authentication schemas.
+   - Integrated authentication logic into `backend/app/main.py` with login endpoint and user retrieval.
+   - Updated `backend/app/models/user.py` to match new schema (added `full_name`, `email`, renamed `password_hash` to `hashed_password`).
+   - Updated `backend/app/config.py` to correctly define `ACCESS_TOKEN_EXPIRE_MINUTES`.
+6. **Created Base Connector Interface**:
+   - Defined `backend/app/connectors/base.py` with `BaseConnector` abstract class and `TimeEntryNormalized` Pydantic model.
+7. **Implemented Zammad Connector**:
+   - Created `backend/app/connectors/zammad_connector.py`, implementing `BaseConnector` methods for Zammad API interaction.
+8. **Implemented Kimai Connector**:
+   - Created `backend/app/connectors/kimai_connector.py`, implementing `BaseConnector` methods for Kimai API interaction.
+9. **Created API Endpoints for Connectors**:
+   - Created `backend/app/api/v1/endpoints/connectors.py` with validation and activity fetching endpoints.
+   - Created `backend/app/api/v1/api.py` to include the `connectors` router.
+   - Integrated `api_router` into `backend/app/main.py`.
+10. **Built Normalizer Service**:
+    - Created `backend/app/services/normalizer.py` with `NormalizerService` class for Zammad and Kimai entry normalization.
 
 ## Next Immediate Steps
-1. Create authentication system (JWT, password hashing)
-2. Create base connector interface (abstract class)
-3. Implement Zammad connector
-4. Implement Kimai connector
-5. Create API endpoints for connectors
-6. Build normalizer service
-7. Implement reconciliation engine
+1. Implement reconciliation engine
 
 ## Active Decisions
 
