@@ -37,6 +37,13 @@ class Settings(BaseSettings):
     # Sync
     sync_schedule_hours: int = 6
 
+    # Connector Settings (for demonstration, these would be per-connector in DB)
+    zammad_base_url: str = "http://localhost:3000"
+    zammad_api_token: str = "your_zammad_api_token"
+    kimai_base_url: str = "http://localhost:8001"
+    kimai_api_token: str = "your_kimai_api_token"
+    kimai_default_project_id: int = 1
+
     @property
     def cors_origins_list(self) -> List[str]:
         """Parse CORS origins from comma-separated string."""

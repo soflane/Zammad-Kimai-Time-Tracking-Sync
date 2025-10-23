@@ -119,4 +119,69 @@ app.include_router(api_router, prefix=settings.API_V1_STR)
 
 if __name__ == "__main__":
     import uvicorn
+    from apscheduler.schedulers.asyncio import AsyncIOScheduler
+    from apscheduler.triggers.interval import IntervalTrigger
+    from app.api.v1.endpoints.connectors import CONNECTOR_TYPES # To get connector classes
+    from app.services.normalizer import NormalizerService
+    from app.services.reconciler import ReconciliationService
+
+
+from contextlib import asynccontextmanager
+from app.database import get_db
+
+# Placeholder for SyncService creation, will be replaced with proper DI
+@asynccontextmanager
+async def get_sync_service_context():
+    # In a real app, retrieve these configs from your database for active connectors
+    zammad_config = {"base_url": settings.zammad_base_url, "api_token": settings.zammad_api_token}
+    kimai_config = {"base_url": settings.kimai_base_url, "api_token": settings.kimai_api_token, "default_project_id": settings.kimai_default_project_id}
+    
+    db_gen = get_db()
+    db_session = next(db_gen) # Get a database session from the generator
+
+    try:
+        sync_service = SyncService(
+            zammad_connector=CONNECTOR_TYPES["zammad"](zammad_config),
+            kimai_connector=CONNECTOR_TYPES["kimai"](kimai_config),
+            normalizer_service=NormalizerService(),
+            reconciliation_service=ReconciliationService(),
+            db=db_session
+        )
+        yield sync_service
+    finally:
+        db_session.close() # Ensure the session is closed
+
+async def periodic_sync_task():
+    print(f"Running scheduled sync task at {datetime.now()}...")
+    async with get_sync_service_context() as sync_service:
+        # Determine the date range dynamically for a real application
+        # For now, a fixed range or based on last run:
+        today = datetime.now()
+        thirty_days_ago = today - timedelta(days=30)
+        await sync_service.sync_time_entries(
+            thirty_days_ago.strftime("%Y-%m-%d"),
+            today.strftime("%Y-%m-%d")
+        )
+
+
+@app.on_event("startup")
+async def startup_event():
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(
+        periodic_sync_task,
+        IntervalTrigger(hours=settings.SYNC_SCHEDULE_HOURS),
+        id="periodic_sync_job"
+    )
+    scheduler.start()
+    print(f"Scheduler started. Sync task scheduled every {settings.SYNC_SCHEDULE_HOURS} hours.")
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    scheduler = AsyncIOScheduler() # Re-instantiate to access the scheduler
+    if scheduler.running:
+        scheduler.shutdown()
+        print("Scheduler shut down.")
+
+if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

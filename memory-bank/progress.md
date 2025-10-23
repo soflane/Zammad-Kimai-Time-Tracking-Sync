@@ -37,17 +37,18 @@
 - [x] Zammad connector
 - [x] Kimai connector
 - [x] Normalizer service
-- [ ] Connection validation
+- [x] Connection validation
 
 ### Phase 4: Sync & Reconciliation
 - [x] Reconciliation engine
 - [x] Sync service
 - [x] Conflict detection
-- [ ] Scheduled tasks (APScheduler)
+- [x] Scheduled tasks (APScheduler)
 
 ### Phase 5: API Endpoints
 - [x] Connector management endpoints
 - [x] Conflict resolution endpoints
+- [x] Connector configuration CRUD endpoints
 - [ ] Mapping endpoints
 - [ ] Sync endpoints
 - [ ] Audit log endpoints

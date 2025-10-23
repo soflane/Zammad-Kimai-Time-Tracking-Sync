@@ -1,7 +1,7 @@
 # Active Context
 
 ## Current Focus
-Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, and conflict detection with API endpoints are implemented.
+Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented.
 
 ## Recent Actions
 1. Created comprehensive memory bank documentation
@@ -47,9 +47,20 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
     - Created `backend/app/api/v1/endpoints/conflicts.py` with CRUD operations for conflicts.
     - Integrated `conflicts` router into `backend/app/api/v1/api.py`.
     - Updated `backend/app/services/sync_service.py` to persist detected conflicts to the database.
+14. **Implemented Scheduled Tasks (APScheduler)**:
+    - Set up and configured `APScheduler` in `backend/app/main.py`.
+    - Fixed indentation errors in `backend/app/main.py`.
+    - Updated `backend/app/config.py` with Zammad and Kimai connector settings.
+    - Refined `SyncService` dependency injection for scheduled tasks using an `asynccontextmanager` for database sessions.
+15. **Implemented Connection Validation and Connector Configuration Management**:
+    - Reviewed `backend/app/models/connector.py`.
+    - Defined Pydantic Schemas for Connectors (`backend/app/schemas/connector.py`).
+    - Created encryption utility (`backend/app/utils/encrypt.py`).
+    - Added CRUD endpoints for connectors in `backend/app/api/v1/endpoints/connectors.py`.
+    - Fixed Pylance errors in `backend/app/api/v1/endpoints/connectors.py`.
 
 ## Next Immediate Steps
-Based on `progress.md`, the next logical step is to implement "Scheduled tasks (APScheduler)".
+Based on `progress.md`, the next logical step is to implement "Mapping endpoints".
 
 ## Active Decisions
 
