@@ -1,7 +1,7 @@
 # Active Context
 
 ## Current Focus
-Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, and sync service are implemented.
+Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, and conflict detection with API endpoints are implemented.
 
 ## Recent Actions
 1. Created comprehensive memory bank documentation
@@ -41,9 +41,15 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
     - Created `backend/app/services/reconciler.py` with `ReconciliationService` class for comparing and reconciling time entries.
 12. **Implemented Sync Service**:
     - Created `backend/app/services/sync_service.py` with `SyncService` class for orchestrating time entry synchronization.
+13. **Implemented Conflict Detection and API**:
+    - Reviewed `backend/app/models/conflict.py` and made `time_entry_id` nullable.
+    - Created `backend/app/schemas/conflict.py` for Pydantic schemas.
+    - Created `backend/app/api/v1/endpoints/conflicts.py` with CRUD operations for conflicts.
+    - Integrated `conflicts` router into `backend/app/api/v1/api.py`.
+    - Updated `backend/app/services/sync_service.py` to persist detected conflicts to the database.
 
 ## Next Immediate Steps
-There are no immediate next steps defined in the `activeContext.md`, but I should check `progress.md` for the next logical step.
+Based on `progress.md`, the next logical step is to implement "Scheduled tasks (APScheduler)".
 
 ## Active Decisions
 

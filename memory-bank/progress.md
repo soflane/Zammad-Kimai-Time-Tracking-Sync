@@ -42,14 +42,14 @@
 ### Phase 4: Sync & Reconciliation
 - [x] Reconciliation engine
 - [x] Sync service
-- [ ] Conflict detection
+- [x] Conflict detection
 - [ ] Scheduled tasks (APScheduler)
 
 ### Phase 5: API Endpoints
 - [x] Connector management endpoints
+- [x] Conflict resolution endpoints
 - [ ] Mapping endpoints
 - [ ] Sync endpoints
-- [ ] Conflict resolution endpoints
 - [ ] Audit log endpoints
 - [ ] Webhook endpoint
 

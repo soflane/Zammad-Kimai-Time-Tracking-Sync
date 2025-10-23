@@ -15,7 +15,7 @@ class Conflict(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Related time entry
-    time_entry_id = Column(Integer, ForeignKey("time_entries.id"), nullable=False)
+    time_entry_id = Column(Integer, ForeignKey("time_entries.id"), nullable=True)
     
     # Conflict details
     conflict_type = Column(String(50), nullable=False, index=True)  # 'duplicate', 'mismatch', 'missing'
