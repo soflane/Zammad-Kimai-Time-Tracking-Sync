@@ -41,7 +41,7 @@
 
 ### Phase 4: Sync & Reconciliation
 - [x] Reconciliation engine
-- [ ] Sync service
+- [x] Sync service
 - [ ] Conflict detection
 - [ ] Scheduled tasks (APScheduler)
 
