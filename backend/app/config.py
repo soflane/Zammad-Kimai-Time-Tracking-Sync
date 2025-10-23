@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     secret_key: str
     encryption_key: str
     algorithm: str = "HS256"
-    access_token_expire_hours: int = 24
+    access_token_expire_minutes: int = 1440
 
     # CORS
     cors_origins: str = "http://localhost:5173"
