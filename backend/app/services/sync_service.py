@@ -143,5 +143,19 @@ class SyncService:
             elif reconciled_entry.reconciliation_status == ReconciliationStatus.MISSING_IN_ZAMMAD:
                 print(f"MISSING IN ZAMMAD (Kimai only): Kimai entry {reconciled_entry.kimai_entry.source_id} not found in Zammad. (Ignored for Zammad->Kimai sync)")
 
+        # Log the sync to audit
+        from app.models.audit_log import AuditLog
+        audit_log = AuditLog(
+            action="sync",
+            entity_type="time_entries",
+            user=current_user.username if 'current_user' in locals() else "scheduled",
+            details={
+                "period": f"{start_date} to {end_date}",
+                "stats": stats
+            }
+        )
+        self.db.add(audit_log)
+        self.db.commit()
+        
         print("Sync complete.")
         return stats

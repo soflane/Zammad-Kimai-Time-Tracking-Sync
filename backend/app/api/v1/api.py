@@ -1,9 +1,10 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import connectors, conflicts, mappings, sync
+from app.api.v1.endpoints import connectors, conflicts, mappings, sync, audit_logs
 
 api_router = APIRouter()
 api_router.include_router(connectors.router, prefix="/connectors", tags=["connectors"])
 api_router.include_router(conflicts.router, prefix="/conflicts", tags=["conflicts"])
 api_router.include_router(mappings.router, prefix="/mappings", tags=["mappings"])
 api_router.include_router(sync.router, prefix="/sync", tags=["sync"])
+api_router.include_router(audit_logs.router, prefix="/audit-logs", tags=["audit-logs"])

@@ -50,8 +50,8 @@
 - [x] Conflict resolution endpoints
 - [x] Connector configuration CRUD endpoints
 - [x] Mapping endpoints
-- [ ] Sync endpoints
-- [ ] Audit log endpoints
+- [x] Sync endpoints
+- [x] Audit log endpoints
 - [ ] Webhook endpoint
 
 ### Phase 6: Frontend
