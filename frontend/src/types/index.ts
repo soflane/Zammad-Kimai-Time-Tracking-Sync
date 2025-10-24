@@ -1,0 +1,165 @@
+// API Response Types based on backend schemas
+
+export interface User {
+  id: number
+  username: string
+  email: string
+  full_name: string
+  is_active: boolean
+  created_at: string
+}
+
+export interface LoginRequest {
+  username: string
+  password: string
+}
+
+export interface LoginResponse {
+  access_token: string
+  token_type: string
+}
+
+export interface Connector {
+  id: number
+  type: 'zammad' | 'kimai'
+  name: string
+  base_url: string
+  api_token: string
+  is_active: boolean
+  config?: Record<string, any>
+  created_at: string
+  updated_at: string
+}
+
+export interface ConnectorCreate {
+  type: 'zammad' | 'kimai'
+  name: string
+  base_url: string
+  api_token: string
+  is_active?: boolean
+  config?: Record<string, any>
+}
+
+export interface ConnectorUpdate {
+  name?: string
+  base_url?: string
+  api_token?: string
+  is_active?: boolean
+  config?: Record<string, any>
+}
+
+export interface ActivityMapping {
+  id: number
+  zammad_type_id: number
+  zammad_type_name: string
+  kimai_activity_id: number
+  kimai_activity_name: string
+  created_at: string
+  updated_at: string
+}
+
+export interface ActivityMappingCreate {
+  zammad_type_id: number
+  zammad_type_name: string
+  kimai_activity_id: number
+  kimai_activity_name: string
+}
+
+export interface ActivityMappingUpdate {
+  zammad_type_name?: string
+  kimai_activity_id?: number
+  kimai_activity_name?: string
+}
+
+export interface TimeEntry {
+  id: number
+  source: 'zammad' | 'kimai'
+  source_id: string
+  connector_id: number
+  ticket_number?: string
+  ticket_id?: number
+  description: string
+  time_minutes: number
+  activity_type_id?: number
+  activity_name?: string
+  user_email: string
+  entry_date: string
+  sync_status: 'pending' | 'synced' | 'conflict' | 'error'
+  target_id?: string
+  tags?: string[]
+  raw_data?: Record<string, any>
+  created_at: string
+  updated_at: string
+}
+
+export interface Conflict {
+  id: number
+  source_entry_id: string
+  target_entry_id?: string
+  conflict_type: string
+  conflict_data: Record<string, any>
+  resolution_status: 'pending' | 'resolved' | 'ignored'
+  resolved_at?: string
+  resolved_by?: number
+  time_entry_id?: number
+  created_at: string
+  updated_at: string
+}
+
+export interface ConflictUpdate {
+  resolution_status: 'resolved' | 'ignored'
+}
+
+export interface SyncRun {
+  id: number
+  connector_id: number
+  status: 'running' | 'completed' | 'failed'
+  entries_fetched: number
+  entries_synced: number
+  conflicts_detected: number
+  started_at: string
+  completed_at?: string
+  error_message?: string
+}
+
+export interface AuditLog {
+  id: number
+  action: string
+  entity_type: string
+  entity_id?: number
+  user_id?: number
+  changes?: Record<string, any>
+  ip_address?: string
+  user_agent?: string
+  created_at: string
+}
+
+export interface SyncRequest {
+  connector_id?: number
+  start_date?: string
+  end_date?: string
+}
+
+export interface ValidationResponse {
+  valid: boolean
+  message: string
+  details?: Record<string, any>
+}
+
+export interface Activity {
+  id: number
+  name: string
+}
+
+export interface PaginatedResponse<T> {
+  items: T[]
+  total: number
+  page: number
+  size: number
+  pages: number
+}
+
+export interface ApiError {
+  detail: string
+  status_code?: number
+}
