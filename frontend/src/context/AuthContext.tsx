@@ -1,6 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
-import api from '@/lib/api'
-
+import { authService } from '@/services/api.service'
 interface AuthContextType {
   user: any | null
   token: string | null
@@ -22,9 +21,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (savedToken) {
       setToken(savedToken)
       // Verify token by fetching user info
-      api.get('/auth/users/me')
-        .then(response => {
-          setUser(response.data)
+      authService.getCurrentUser()
+        .then(userData => {
+          setUser(userData)
         })
         .catch(() => {
           logout()
@@ -36,13 +35,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (username: string, password: string) => {
-    const response = await api.post('/auth/login', { username, password })
-    const { access_token, user: userData } = response.data
-    localStorage.setItem('token', access_token)
-    setToken(access_token)
+    const loginData = await authService.login({ username, password })
+    localStorage.setItem('token', loginData.access_token)
+    setToken(loginData.access_token)
+    // Get user info after login
+    const userData = await authService.getCurrentUser()
     setUser(userData)
   }
-
   const logout = () => {
     localStorage.removeItem('token')
     setToken(null)
