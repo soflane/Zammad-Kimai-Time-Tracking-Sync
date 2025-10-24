@@ -66,6 +66,17 @@ async def root():
 
 app.include_router(api_router, prefix=settings.api_v1_str)
 
+from fastapi import Request, HTTPException
+from fastapi.responses import JSONResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    log.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal server error"}
+    )
+
 # Scheduler setup (runs only when main.py executed directly, not in production uvicorn)
 if __name__ == "__main__":
     import uvicorn
@@ -76,7 +87,10 @@ if __name__ == "__main__":
     from app.services.normalizer import NormalizerService
     from app.services.reconciler import ReconciliationService
     from app.services.sync_service import SyncService
-    from app.database import get_db
+from app.database import get_db
+import logging
+
+log = logging.getLogger(__name__)
 
     # Placeholder for SyncService creation
     @asynccontextmanager
@@ -100,7 +114,7 @@ if __name__ == "__main__":
             db_session.close()
 
     async def periodic_sync_task():
-        print(f"Running scheduled sync task at {datetime.now()}...")
+        log.info(f"Running scheduled sync task at {datetime.now()}...")
         async with get_sync_service_context() as sync_service:
             today = datetime.now()
             thirty_days_ago = today - timedelta(days=30)
@@ -118,13 +132,13 @@ if __name__ == "__main__":
             id="periodic_sync_job"
         )
         scheduler.start()
-        print(f"Scheduler started. Sync task scheduled every {settings.sync_schedule_hours} hours.")
+        log.info(f"Scheduler started. Sync task scheduled every {settings.sync_schedule_hours} hours.")
 
     @app.on_event("shutdown")
     async def shutdown_event():
         scheduler = AsyncIOScheduler()
         if scheduler.running:
             scheduler.shutdown()
-            print("Scheduler shut down.")
+            log.info("Scheduler shut down.")
 
     uvicorn.run(app, host="0.0.0.0", port=8000)

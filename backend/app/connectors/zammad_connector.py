@@ -1,10 +1,13 @@
 import httpx
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
 from app.connectors.base import BaseConnector, TimeEntryNormalized
 from app.config import settings
 # from app.encrypt import decrypt_data  # Assuming an encryption utility for API tokens
+
+log = logging.getLogger(__name__)
 
 class ZammadConnector(BaseConnector):
     """
@@ -29,10 +32,10 @@ class ZammadConnector(BaseConnector):
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
-            print(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
+            log.error(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
             raise
         except httpx.RequestError as e:
-            print(f"Request error for {e.request.url}: {e}")
+            log.error(f"Request error for {e.request.url}: {e}")
             raise
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
@@ -63,7 +66,7 @@ class ZammadConnector(BaseConnector):
         # first, or if Zammad provides a global time_accountings endpoint with date filters.
 
         # Placeholder for actual implementation:
-        print(f"Fetching Zammad time entries from {start_date} to {end_date}. (Implementation for fetching from Zammad API needs refinement based on available endpoints)")
+        log.info(f"Fetching Zammad time entries from {start_date} to {end_date}. (Implementation for fetching from Zammad API needs refinement based on available endpoints)")
         
         # Simulating a list of TimeEntryNormalized objects
         # In actual implementation, parse Zammad API response into TimeEntryNormalized objects

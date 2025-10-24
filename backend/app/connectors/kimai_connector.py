@@ -1,10 +1,13 @@
 import httpx
+import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 
 from app.connectors.base import BaseConnector, TimeEntryNormalized
 from app.config import settings
 # from app.encrypt import decrypt_data  # Assuming an encryption utility for API tokens
+
+log = logging.getLogger(__name__)
 
 class KimaiConnector(BaseConnector):
     """
@@ -29,10 +32,10 @@ class KimaiConnector(BaseConnector):
             response.raise_for_status()
             return response.json()
         except httpx.HTTPStatusError as e:
-            print(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
+            log.error(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
             raise
         except httpx.RequestError as e:
-            print(f"Request error for {e.request.url}: {e}")
+            log.error(f"Request error for {e.request.url}: {e}")
             raise
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
@@ -174,8 +177,10 @@ class KimaiConnector(BaseConnector):
         """
         try:
             await self._request("GET", "/api/users/me")
+            log.info("Kimai connection validated successfully")
             return True
-        except Exception:
+        except Exception as e:
+            log.error(f"Kimai connection validation failed: {e}")
             return False
 
     async def fetch_activities(self) -> List[Dict[str, Any]]:
