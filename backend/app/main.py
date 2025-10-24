@@ -1,17 +1,17 @@
 """Main FastAPI application."""
 
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
+from fastapi.security import OAuth2PasswordRequestForm
 
 from app.api.v1.api import api_router
 from app.config import settings
 from app import __version__
-from app.auth import create_access_token, verify_password, get_password_hash
-from app.schemas.auth import Token, TokenData, User, UserInDB
+from app.auth import create_access_token, authenticate_user, get_current_active_user
+from app.schemas.auth import Token, User
 
 app = FastAPI(
     title="Zammad-Kimai Time Tracking Sync",
@@ -28,55 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-# For demo purposes, we will store a single user in memory (or a mock database)
-# In a real application, you would fetch this from your database
-DEMO_USER = UserInDB(
-    username=settings.ADMIN_USERNAME,
-    email="admin@example.com",
-    full_name="Admin User",
-    disabled=False,
-    hashed_password=get_password_hash(settings.ADMIN_PASSWORD)
-)
-
-def get_user(username: str):
-    if username == DEMO_USER.username:
-        return DEMO_USER
-    return None
-
-def authenticate_user(username: str, password: str):
-    user = get_user(username)
-    if not user:
-        return False
-    if not verify_password(password, user.hashed_password):
-        return False
-    return user
-
-async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    try:
-        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
-            raise credentials_exception
-        token_data = TokenData(username=username)
-    except JWTError:
-        raise credentials_exception
-    user = get_user(token_data.username)
-    if user is None:
-        raise credentials_exception
-    return user
-
-async def get_current_active_user(current_user: Annotated[User, Depends(get_current_user)]):
-    if current_user.disabled:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inactive user")
-    return current_user
-
 @app.post("/token", response_model=Token)
 async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
     user = authenticate_user(form_data.username, form_data.password)
@@ -86,7 +37,7 @@ async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
@@ -104,7 +55,6 @@ async def health_check():
         "version": __version__
     }
 
-
 @app.get("/")
 async def root():
     """Root endpoint - redirect to docs."""
@@ -114,74 +64,67 @@ async def root():
         "docs": "/api/docs"
     }
 
+app.include_router(api_router, prefix=settings.api_v1_str)
 
-app.include_router(api_router, prefix=settings.API_V1_STR)
-
+# Scheduler setup (runs only when main.py executed directly, not in production uvicorn)
 if __name__ == "__main__":
     import uvicorn
+    from contextlib import asynccontextmanager
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.interval import IntervalTrigger
-    from app.api.v1.endpoints.connectors import CONNECTOR_TYPES # To get connector classes
+    from app.api.v1.endpoints.connectors import CONNECTOR_TYPES
     from app.services.normalizer import NormalizerService
     from app.services.reconciler import ReconciliationService
+    from app.services.sync_service import SyncService
+    from app.database import get_db
 
+    # Placeholder for SyncService creation
+    @asynccontextmanager
+    async def get_sync_service_context():
+        zammad_config = {"base_url": settings.zammad_base_url, "api_token": settings.zammad_api_token}
+        kimai_config = {"base_url": settings.kimai_base_url, "api_token": settings.kimai_api_token, "default_project_id": settings.kimai_default_project_id}
+        
+        db_gen = get_db()
+        db_session = next(db_gen)
 
-from contextlib import asynccontextmanager
-from app.database import get_db
+        try:
+            sync_service = SyncService(
+                zammad_connector=CONNECTOR_TYPES["zammad"](zammad_config),
+                kimai_connector=CONNECTOR_TYPES["kimai"](kimai_config),
+                normalizer_service=NormalizerService(),
+                reconciliation_service=ReconciliationService(),
+                db=db_session
+            )
+            yield sync_service
+        finally:
+            db_session.close()
 
-# Placeholder for SyncService creation, will be replaced with proper DI
-@asynccontextmanager
-async def get_sync_service_context():
-    # In a real app, retrieve these configs from your database for active connectors
-    zammad_config = {"base_url": settings.zammad_base_url, "api_token": settings.zammad_api_token}
-    kimai_config = {"base_url": settings.kimai_base_url, "api_token": settings.kimai_api_token, "default_project_id": settings.kimai_default_project_id}
-    
-    db_gen = get_db()
-    db_session = next(db_gen) # Get a database session from the generator
+    async def periodic_sync_task():
+        print(f"Running scheduled sync task at {datetime.now()}...")
+        async with get_sync_service_context() as sync_service:
+            today = datetime.now()
+            thirty_days_ago = today - timedelta(days=30)
+            await sync_service.sync_time_entries(
+                thirty_days_ago.strftime("%Y-%m-%d"),
+                today.strftime("%Y-%m-%d")
+            )
 
-    try:
-        sync_service = SyncService(
-            zammad_connector=CONNECTOR_TYPES["zammad"](zammad_config),
-            kimai_connector=CONNECTOR_TYPES["kimai"](kimai_config),
-            normalizer_service=NormalizerService(),
-            reconciliation_service=ReconciliationService(),
-            db=db_session
+    @app.on_event("startup")
+    async def startup_event():
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            periodic_sync_task,
+            IntervalTrigger(hours=settings.sync_schedule_hours),
+            id="periodic_sync_job"
         )
-        yield sync_service
-    finally:
-        db_session.close() # Ensure the session is closed
+        scheduler.start()
+        print(f"Scheduler started. Sync task scheduled every {settings.sync_schedule_hours} hours.")
 
-async def periodic_sync_task():
-    print(f"Running scheduled sync task at {datetime.now()}...")
-    async with get_sync_service_context() as sync_service:
-        # Determine the date range dynamically for a real application
-        # For now, a fixed range or based on last run:
-        today = datetime.now()
-        thirty_days_ago = today - timedelta(days=30)
-        await sync_service.sync_time_entries(
-            thirty_days_ago.strftime("%Y-%m-%d"),
-            today.strftime("%Y-%m-%d")
-        )
+    @app.on_event("shutdown")
+    async def shutdown_event():
+        scheduler = AsyncIOScheduler()
+        if scheduler.running:
+            scheduler.shutdown()
+            print("Scheduler shut down.")
 
-
-@app.on_event("startup")
-async def startup_event():
-    scheduler = AsyncIOScheduler()
-    scheduler.add_job(
-        periodic_sync_task,
-        IntervalTrigger(hours=settings.SYNC_SCHEDULE_HOURS),
-        id="periodic_sync_job"
-    )
-    scheduler.start()
-    print(f"Scheduler started. Sync task scheduled every {settings.SYNC_SCHEDULE_HOURS} hours.")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    scheduler = AsyncIOScheduler() # Re-instantiate to access the scheduler
-    if scheduler.running:
-        scheduler.shutdown()
-        print("Scheduler shut down.")
-
-if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

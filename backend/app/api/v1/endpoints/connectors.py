@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Annotated
+from typing import List, Dict, Any, Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
@@ -10,7 +10,7 @@ from app.connectors.kimai_connector import KimaiConnector
 from app.models.connector import Connector as DBConnector
 from app.schemas.connector import ConnectorCreate, ConnectorUpdate, ConnectorInDB
 from app.schemas.auth import User 
-from app.main import get_current_active_user
+from app.auth import get_current_active_user
 from app.utils.encrypt import encrypt_data, decrypt_data
 
 router = APIRouter()

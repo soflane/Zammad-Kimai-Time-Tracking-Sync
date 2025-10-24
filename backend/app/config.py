@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # Application
     debug: bool = False
     log_level: str = "INFO"
+    api_v1_str: str = "/api/v1"
 
     # Sync
     sync_schedule_hours: int = 6

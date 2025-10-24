@@ -1,4 +1,5 @@
-from typing import List, Annotated
+from typing import List, Annotated, Optional
+from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -6,7 +7,7 @@ from app.database import get_db
 from app.models.conflict import Conflict as DBConflict
 from app.schemas.conflict import ConflictInDB, ConflictCreate, ConflictUpdate
 from app.schemas.auth import User # For dependency `get_current_active_user`
-from app.main import get_current_active_user # Assuming get_current_active_user is in main.py
+from app.auth import get_current_active_user # Assuming get_current_active_user is in main.py
 
 router = APIRouter()
 

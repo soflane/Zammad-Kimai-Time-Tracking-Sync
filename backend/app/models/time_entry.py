@@ -44,7 +44,7 @@ class TimeEntry(Base):
     
     # Additional data
     tags = Column(JSONB, nullable=True)  # For Kimai tags like ['billed:2024-01']
-    metadata = Column(JSONB, nullable=True)  # Additional connector-specific data
+    extra_metadata = Column(JSONB, nullable=True)  # Additional connector-specific data
     
     # Timestamps
     created_at = Column(DateTime(timezone=True), nullable=False)
