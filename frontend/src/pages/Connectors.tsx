@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Plus, Trash2, CheckCircle, XCircle } from 'lucide-react'
+import { Loader2, Plus, Trash2, Database } from 'lucide-react'
 
 interface ConnectorFormData {
   type: 'zammad' | 'kimai'
@@ -19,6 +19,7 @@ interface ConnectorFormData {
 
 export default function Connectors() {
   const [connectors, setConnectors] = useState<Connector[]>([])
+  const [sortBy, setSortBy] = useState<'name' | 'type' | 'active'>('name')
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
@@ -37,12 +38,20 @@ export default function Connectors() {
     if (isAuthenticated) {
       fetchConnectors()
     }
-  }, [isAuthenticated])
+  }, [isAuthenticated, sortBy])
 
   const fetchConnectors = async () => {
     try {
       const data = await connectorService.getAll()
-      setConnectors(data)
+      let sorted = [...data];
+      if (sortBy === 'name') {
+        sorted.sort((a, b) => a.name.localeCompare(b.name));
+      } else if (sortBy === 'type') {
+        sorted.sort((a, b) => a.type.localeCompare(b.type));
+      } else if (sortBy === 'active') {
+        sorted.sort((a, b) => Number(b.is_active) - Number(a.is_active));
+      }
+      setConnectors(sorted)
     } catch (error: any) {
       toast({
         title: "Failed to load connectors",
@@ -187,9 +196,21 @@ export default function Connectors() {
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Connectors</h1>
-        <Button onClick={() => startEdit()} variant="outline">
-          <Plus className="mr-2 h-4 w-4" /> Add Connector
-        </Button>
+        <div className="flex items-center space-x-4">
+          <Select value={sortBy} onValueChange={(value) => setSortBy(value as 'name' | 'type' | 'active')}>
+            <SelectTrigger className="w-40">
+              <SelectValue placeholder="Sort by" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="name">Name</SelectItem>
+              <SelectItem value="type">Type</SelectItem>
+              <SelectItem value="active">Status</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button onClick={() => startEdit()} variant="outline">
+            <Plus className="mr-2 h-4 w-4" /> Add Connector
+          </Button>
+        </div>
       </div>
 
       {connectors.length === 0 ? (
@@ -202,31 +223,40 @@ export default function Connectors() {
       ) : (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {connectors.map((connector) => (
-            <Card key={connector.id}>
+            <Card key={connector.id} className="hover:shadow-modern transition-shadow">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <span>{connector.name}</span>
-                  {connector.is_active ? (
-                    <CheckCircle className="h-5 w-5 text-green-500" />
-                  ) : (
-                    <XCircle className="h-5 w-5 text-gray-500" />
-                  )}
+                  <div className="flex items-center space-x-2">
+                    <Database className="h-5 w-5 text-primary" />
+                    <span>{connector.name}</span>
+                  </div>
+                  <div className="flex items-center space-x-1">
+                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${connector.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                      {connector.is_active ? "Active" : "Inactive"}
+                    </span>
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      {connector.type.toUpperCase()}
+                    </span>
+                  </div>
                 </CardTitle>
                 <CardDescription>
-                  {connector.type.toUpperCase()} - {connector.is_active ? 'Active' : 'Inactive'}
+                  ID: {connector.id} • Last validated: {new Date(connector.updated_at).toLocaleString()}
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-2">
-                <p className="text-sm text-muted-foreground truncate">
-                  {connector.base_url}
-                </p>
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">URL</p>
+                  <p className="text-sm text-muted-foreground truncate">
+                    {connector.base_url}
+                  </p>
+                </div>
                 <div className="flex flex-col space-y-1">
                   <Button 
                     variant="outline" 
                     size="sm" 
                     onClick={() => handleValidate(connector.id)}
                     disabled={validating}
-                    className="w-full"
+                    className="w-full shadow-modern"
                   >
                     {validating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     Test Connection

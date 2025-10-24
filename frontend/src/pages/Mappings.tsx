@@ -6,7 +6,7 @@ import type { ActivityMapping, ActivityMappingCreate, Connector, Activity } from
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Plus, Trash2, Edit } from 'lucide-react'
+import { Loader2, Plus, Trash2, Edit, MapPin, Database } from 'lucide-react'
 
 interface MappingFormData {
   zammad_type_id: number
@@ -199,14 +199,18 @@ export default function Mappings() {
   return (
     <div className="container mx-auto p-4 space-y-6">
       <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold">Activity Mappings</h1>
-          <p className="text-muted-foreground">Map Zammad activity types to Kimai activities</p>
+        <div className="flex items-center space-x-2">
+          <MapPin className="h-6 w-6 text-primary" />
+          <div>
+            <h1 className="text-2xl font-bold">Activity Mappings</h1>
+            <p className="text-muted-foreground">Map Zammad activity types to Kimai activities</p>
+          </div>
         </div>
         <Button 
           onClick={() => startEdit()} 
           variant="outline"
           disabled={!hasActiveConnectors}
+          className="shadow-modern"
         >
           <Plus className="mr-2 h-4 w-4" /> Add Mapping
         </Button>
@@ -244,37 +248,41 @@ export default function Mappings() {
               {mappings.map((mapping) => (
                 <div 
                   key={mapping.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50"
+                  className="p-4 border rounded-lg hover:shadow-modern transition-shadow bg-card hover:bg-accent/10"
                 >
-                  <div className="flex-1 grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-sm font-medium">Zammad Activity</p>
-                      <p className="text-sm text-muted-foreground">
-                        {mapping.zammad_type_name} (ID: {mapping.zammad_type_id})
-                      </p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 space-y-2">
+                      <div className="flex items-center space-x-2">
+                        <Database className="h-4 w-4 text-blue-500" />
+                        <p className="text-sm font-medium text-muted-foreground">
+                          Zammad: {mapping.zammad_type_name} (ID: {mapping.zammad_type_id})
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <Database className="h-4 w-4 text-green-500" />
+                        <p className="text-sm font-medium text-muted-foreground">
+                          Kimai: {mapping.kimai_activity_name} (ID: {mapping.kimai_activity_id})
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-medium">Kimai Activity</p>
-                      <p className="text-sm text-muted-foreground">
-                        {mapping.kimai_activity_name} (ID: {mapping.kimai_activity_id})
-                      </p>
+                    <div className="flex space-x-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startEdit(mapping)}
+                        className="h-8 w-8 p-0"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDelete(mapping.id)}
+                        className="h-8 w-8 p-0 text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
                     </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => startEdit(mapping)}
-                    >
-                      <Edit className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleDelete(mapping.id)}
-                    >
-                      <Trash2 className="h-4 w-4 text-red-500" />
-                    </Button>
                   </div>
                 </div>
               ))}
@@ -291,13 +299,16 @@ export default function Mappings() {
             </h2>
             <div className="space-y-4">
               <div>
-                <label className="text-sm font-medium mb-2 block">Zammad Activity Type</label>
+                <label className="text-sm font-medium mb-2 block flex items-center">
+                  <Database className="h-4 w-4 mr-2 text-blue-500" />
+                  Zammad Activity Type
+                </label>
                 <Select 
                   value={formData.zammad_type_id.toString()}
                   onValueChange={handleZammadSelect}
                   disabled={editing !== 0}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="shadow-modern">
                     <SelectValue placeholder="Select Zammad activity" />
                   </SelectTrigger>
                   <SelectContent>
@@ -315,12 +326,15 @@ export default function Mappings() {
                 )}
               </div>
               <div>
-                <label className="text-sm font-medium mb-2 block">Kimai Activity</label>
+                <label className="text-sm font-medium mb-2 block flex items-center">
+                  <Database className="h-4 w-4 mr-2 text-green-500" />
+                  Kimai Activity
+                </label>
                 <Select 
                   value={formData.kimai_activity_id.toString()}
                   onValueChange={handleKimaiSelect}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="shadow-modern">
                     <SelectValue placeholder="Select Kimai activity" />
                   </SelectTrigger>
                   <SelectContent>
@@ -336,10 +350,11 @@ export default function Mappings() {
                 <Button 
                   variant="outline" 
                   onClick={() => { setEditing(null); resetForm(); }}
+                  className="shadow-modern"
                 >
                   Cancel
                 </Button>
-                <Button onClick={handleSave} disabled={saving}>
+                <Button onClick={handleSave} disabled={saving} className="shadow-modern">
                   {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {saving ? 'Saving...' : editing === 0 ? 'Create' : 'Update'}
                 </Button>

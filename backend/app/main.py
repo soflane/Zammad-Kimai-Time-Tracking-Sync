@@ -87,10 +87,10 @@ if __name__ == "__main__":
     from app.services.normalizer import NormalizerService
     from app.services.reconciler import ReconciliationService
     from app.services.sync_service import SyncService
-from app.database import get_db
-import logging
+    from app.database import get_db
+    import logging
 
-log = logging.getLogger(__name__)
+    log = logging.getLogger(__name__)
 
     # Placeholder for SyncService creation
     @asynccontextmanager
