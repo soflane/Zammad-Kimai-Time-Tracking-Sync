@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     # Security
     secret_key: str
     encryption_key: str
+    webhook_secret: str = "your_webhook_secret_here"
     algorithm: str = "HS256"
     access_token_expire_minutes: int = 1440
 
