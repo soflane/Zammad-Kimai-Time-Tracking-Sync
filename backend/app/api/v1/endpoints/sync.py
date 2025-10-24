@@ -1,4 +1,4 @@
-from typing import List, Annotated, Optional
+from typing import Annotated, Optional
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
@@ -73,7 +73,7 @@ async def run_sync(
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Sync failed: {str(e)}")
 
-@router.get("/runs", response_model=List[Dict])  # Assuming SyncRun model for future
+@router.get("/runs", response_model=list[dict])  # Assuming SyncRun model for future
 async def get_sync_runs(
     skip: int = 0,
     limit: int = 100,

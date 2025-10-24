@@ -122,6 +122,20 @@ All time entries flow through normalizer service before storage:
 4. Test end-to-end workflow
 5. Document in memory bank if significant
 
+## Development Environment Notes
+**Windows Local Development:**
+- Frontend: `cd frontend` then `npm run dev` (Vite dev server on port 5173)
+- Backend: `cd backend` then `uvicorn app.main:app --reload` (FastAPI on port 8000)
+- Vite proxies `/api` requests to backend (see vite.config.ts)
+- PowerShell command chaining: Use semicolons (`;`) not `&&`
+
+**Docker Deployment (Production):**
+- Use `docker-compose up` from project root
+- Backend: FastAPI in Docker container with Gunicorn
+- Frontend: Vite build served by Nginx
+- PostgreSQL: Separate database service
+- All services networked via docker-compose.yml
+
 ## Key Learnings
 - Zammad time_unit is in minutes (not hours)
 - Kimai requires HTML5 datetime format (no timezone)
