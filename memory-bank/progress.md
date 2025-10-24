@@ -49,7 +49,7 @@
 - [x] Connector management endpoints
 - [x] Conflict resolution endpoints
 - [x] Connector configuration CRUD endpoints
-- [ ] Mapping endpoints
+- [x] Mapping endpoints
 - [ ] Sync endpoints
 - [ ] Audit log endpoints
 - [ ] Webhook endpoint

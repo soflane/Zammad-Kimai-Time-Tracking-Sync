@@ -58,9 +58,15 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
     - Created encryption utility (`backend/app/utils/encrypt.py`).
     - Added CRUD endpoints for connectors in `backend/app/api/v1/endpoints/connectors.py`.
     - Fixed Pylance errors in `backend/app/api/v1/endpoints/connectors.py`.
+16. **Implemented Activity Mapping Endpoints**:
+    - Created Pydantic schemas (`backend/app/schemas/mapping.py`) for ActivityMapping CRUD.
+    - Implemented CRUD endpoints (`backend/app/api/v1/endpoints/mappings.py`) with uniqueness checks for Zammad-Kimai pairs.
+    - Integrated mappings router into `backend/app/api/v1/api.py`.
+    - Updated `backend/app/services/sync_service.py` to apply mappings during Kimai creation (lookup by zammad_type_id, conflict for unmapped); fixed normalization calls.
+    - No changes to `backend/app/services/normalizer.py` needed (unification preserves IDs for reconciliation).
 
 ## Next Immediate Steps
-Based on `progress.md`, the next logical step is to implement "Mapping endpoints".
+Based on `progress.md`, the next logical step is to implement "Sync endpoints".
 
 ## Active Decisions
 

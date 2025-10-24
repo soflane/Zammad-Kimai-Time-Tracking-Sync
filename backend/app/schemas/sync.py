@@ -1,0 +1,16 @@
+from datetime import date
+from typing import Optional
+from pydantic import BaseModel
+
+class SyncRequest(BaseModel):
+    start_date: Optional[str] = None  # YYYY-MM-DD, use last 30 days if not provided
+    end_date: Optional[str] = None    # YYYY-MM-DD, use today if not provided
+
+class SyncResponse(BaseModel):
+    status: str  # 'success', 'partial_success', 'error'
+    message: str
+    start_date: str
+    end_date: str
+    num_processed: int = 0
+    num_created: int = 0
+    num_conflicts: int = 0

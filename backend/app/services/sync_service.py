@@ -10,6 +10,7 @@ from app.services.normalizer import NormalizerService
 from app.services.reconciler import ReconciliationService, ReconciledTimeEntry, ReconciliationStatus
 from app.models.conflict import Conflict as DBConflict # Import DB Conflict model
 from app.schemas.conflict import ConflictCreate # Import Pydantic schema for creating conflicts
+from app.models.mapping import ActivityMapping
 
 
 class SyncService:
@@ -31,23 +32,24 @@ class SyncService:
         self.reconciliation_service = reconciliation_service
         self.db = db
 
-    async def sync_time_entries(self, start_date: str, end_date: str):
+    async def sync_time_entries(self, start_date: str, end_date: str) -> dict:
         """
         Performs a full synchronization cycle for time entries within the given date range.
-        - Fetches Zammad entries
-        - Fetches Kimai entries
-        - Normalizes both
-        - Reconciles them
-        - Creates / updates missing entries in Kimai
-        - Flags conflicts for manual review (persists to DB)
+        Returns stats: {'processed': int, 'created': int, 'conflicts': int}
         """
         print(f"Starting sync from {start_date} to {end_date}")
+        
+        stats = {
+            "processed": 0,
+            "created": 0,
+            "conflicts": 0
+        }
 
         # 1. Fetch entries from Zammad
         zammad_raw_entries = await self.zammad_connector.fetch_time_entries(start_date, end_date)
         zammad_normalized_entries: List[TimeEntryNormalized] = []
         for entry in zammad_raw_entries:
-            zammad_normalized_entries.append(entry) 
+            zammad_normalized_entries.append(self.normalizer_service.normalize_zammad_entry(entry)) 
 
         print(f"Fetched {len(zammad_normalized_entries)} normalized entries from Zammad.")
 
@@ -55,7 +57,7 @@ class SyncService:
         kimai_raw_entries = await self.kimai_connector.fetch_time_entries(start_date, end_date)
         kimai_normalized_entries: List[TimeEntryNormalized] = []
         for entry in kimai_raw_entries:
-            kimai_normalized_entries.append(entry)
+            kimai_normalized_entries.append(self.normalizer_service.normalize_kimai_entry(entry))
 
         print(f"Fetched {len(kimai_normalized_entries)} normalized entries from Kimai.")
 
@@ -68,29 +70,60 @@ class SyncService:
 
         # 4. Process reconciled results
         for reconciled_entry in reconciled_results:
+            stats["processed"] += 1
             if reconciled_entry.reconciliation_status == ReconciliationStatus.MATCH:
                 print(f"MATCH: Zammad {reconciled_entry.zammad_entry.source_id} & Kimai {reconciled_entry.kimai_entry.source_id} are in sync.")
                 # Future: Update our DB with association or latest state
             elif reconciled_entry.reconciliation_status == ReconciliationStatus.MISSING_IN_KIMAI:
                 print(f"MISSING IN KIMAI: Zammad entry {reconciled_entry.zammad_entry.source_id} not found in Kimai. Attempting creation...")
-                try:
-                    created_kimai_entry = await self.kimai_connector.create_time_entry(reconciled_entry.zammad_entry)
-                    print(f"Successfully created Kimai entry: {created_kimai_entry.source_id}")
-                    # Future: Store linkage in our database
-                except Exception as e:
-                    print(f"Failed to create Kimai entry for Zammad {reconciled_entry.zammad_entry.source_id}: {e}")
-                    # Store as conflict
+                zammad_entry = reconciled_entry.zammad_entry
+                
+                # Lookup activity mapping
+                mapping = self.db.query(ActivityMapping).filter(
+                    ActivityMapping.zammad_type_id == zammad_entry.activity_type_id,
+                    ActivityMapping.is_active == True
+                ).first()
+                
+                if mapping:
+                    # Create a copy with mapped Kimai activity
+                    mapped_entry = zammad_entry.model_copy(update={
+                        "activity_type_id": mapping.kimai_activity_id,
+                        "activity_name": mapping.kimai_activity_name
+                    })
+                    try:
+                        created_kimai_entry = await self.kimai_connector.create_time_entry(mapped_entry)
+                        print(f"Successfully created Kimai entry: {created_kimai_entry.source_id}")
+                        stats["created"] += 1
+                        # Future: Store linkage in our database
+                    except Exception as e:
+                        print(f"Failed to create Kimai entry for Zammad {zammad_entry.source_id}: {e}")
+                        # Store as conflict
+                        conflict_data = ConflictCreate(
+                            conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
+                            zammad_data=zammad_entry.model_dump(),
+                            kimai_data=None, # No corresponding Kimai entry
+                            notes=f"Failed to create Kimai entry: {e}"
+                        )
+                        db_conflict = DBConflict(**conflict_data.model_dump())
+                        self.db.add(db_conflict)
+                        self.db.commit()
+                        self.db.refresh(db_conflict)
+                        stats["conflicts"] += 1
+                        print(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
+                else:
+                    print(f"No active mapping found for Zammad activity_type_id {zammad_entry.activity_type_id}. Logging as conflict.")
                     conflict_data = ConflictCreate(
                         conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
-                        zammad_data=reconciled_entry.zammad_entry.model_dump(),
-                        kimai_data=None, # No corresponding Kimai entry
-                        notes=f"Failed to create Kimai entry: {e}"
+                        zammad_data=zammad_entry.model_dump(),
+                        kimai_data=None,
+                        notes=f"Unmapped activity type {zammad_entry.activity_type_id}; configure mapping first"
                     )
                     db_conflict = DBConflict(**conflict_data.model_dump())
                     self.db.add(db_conflict)
                     self.db.commit()
                     self.db.refresh(db_conflict)
-                    print(f"Logged conflict for Zammad {reconciled_entry.zammad_entry.source_id} (ID: {db_conflict.id})")
+                    stats["conflicts"] += 1
+                    print(f"Logged unmapped conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
 
             elif reconciled_entry.reconciliation_status == ReconciliationStatus.CONFLICT:
                 print(f"CONFLICT: Zammad {reconciled_entry.zammad_entry.source_id} and Kimai {reconciled_entry.kimai_entry.source_id} differ. Logging conflict...")
@@ -104,9 +137,11 @@ class SyncService:
                 self.db.add(db_conflict)
                 self.db.commit()
                 self.db.refresh(db_conflict)
+                stats["conflicts"] += 1
                 print(f"Logged conflict (ID: {db_conflict.id})")
 
             elif reconciled_entry.reconciliation_status == ReconciliationStatus.MISSING_IN_ZAMMAD:
                 print(f"MISSING IN ZAMMAD (Kimai only): Kimai entry {reconciled_entry.kimai_entry.source_id} not found in Zammad. (Ignored for Zammad->Kimai sync)")
-        
+
         print("Sync complete.")
+        return stats
