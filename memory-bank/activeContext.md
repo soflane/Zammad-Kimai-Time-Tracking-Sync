@@ -88,6 +88,11 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
     - Integrated mappings router into `backend/app/api/v1/api.py`.
     - Updated `backend/app/services/sync_service.py` to apply mappings during Kimai creation (lookup by zammad_type_id, conflict for unmapped); fixed normalization calls.
     - No changes to `backend/app/services/normalizer.py` needed (unification preserves IDs for reconciliation).
+17. **Fixed Authentication Integration and Login Flow**:
+    - Updated `frontend/src/context/AuthContext.tsx` to use authService correctly (POST /token, GET /users/me) instead of hardcoded endpoints.
+    - Fixed bcrypt password hashing limitation in `backend/app/auth.py` by switching to pbkdf2_sha256 scheme.
+    - Verified demo user login with credentials admin/changeme works via backend API and frontend application.
+    - Rebuilt frontend Docker image and restarted services; login now functional at http://localhost:3000.
 
 ## Next Immediate Steps
 Based on `progress.md`, the next logical step is to implement "Sync endpoints".

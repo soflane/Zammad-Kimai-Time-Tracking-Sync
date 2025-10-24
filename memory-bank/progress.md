@@ -85,7 +85,13 @@
 - [ ] Deployment guide
 
 ## Known Issues
-None yet - project just starting
+- Authentication system fully functional with demo user (admin/changeme)
+- Frontend login flow integrated and working via Docker at http://localhost:3000
+
+## Notes
+- Starting with database-first approach for solid foundation
+- Will use FastAPI auto-docs for API testing during development
+- Frontend can be developed in parallel once API is stable
 
 ## Notes
 - Starting with database-first approach for solid foundation
