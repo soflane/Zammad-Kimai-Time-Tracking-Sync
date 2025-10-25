@@ -25,14 +25,19 @@ export const authService = {
     formData.append('username', credentials.username)
     formData.append('password', credentials.password)
     
+    // Use axios directly for login to bypass the baseURL
     const response = await api.post('/token', formData, {
+      baseURL: '', // Override baseURL to use root
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
     })
     return response.data
   },
 
   getCurrentUser: async (): Promise<User> => {
-    const response = await api.get('/users/me')
+    // Use axios directly for getCurrentUser to bypass the baseURL
+    const response = await api.get('/users/me/', {
+      baseURL: '' // Override baseURL to use root
+    })
     return response.data
   },
 
@@ -44,7 +49,7 @@ export const authService = {
 // Connectors
 export const connectorService = {
   getAll: async (): Promise<Connector[]> => {
-    const response = await api.get('/connectors')
+    const response = await api.get('/connectors/')
     return response.data
   },
 
@@ -54,7 +59,7 @@ export const connectorService = {
   },
 
   create: async (connector: ConnectorCreate): Promise<Connector> => {
-    const response = await api.post('/connectors', connector)
+    const response = await api.post('/connectors/', connector)
     return response.data
   },
 
@@ -68,7 +73,7 @@ export const connectorService = {
   },
 
   validate: async (id: number): Promise<ValidationResponse> => {
-    const response = await api.post(`/connectors/${id}/validate`)
+    const response = await api.post(`/connectors/validate?connector_id=${id}`)
     return response.data
   },
 
@@ -81,7 +86,7 @@ export const connectorService = {
 // Activity Mappings
 export const mappingService = {
   getAll: async (): Promise<ActivityMapping[]> => {
-    const response = await api.get('/mappings')
+    const response = await api.get('/mappings/')
     return response.data
   },
 
@@ -91,7 +96,7 @@ export const mappingService = {
   },
 
   create: async (mapping: ActivityMappingCreate): Promise<ActivityMapping> => {
-    const response = await api.post('/mappings', mapping)
+    const response = await api.post('/mappings/', mapping)
     return response.data
   },
 
@@ -108,7 +113,7 @@ export const mappingService = {
 // Conflicts
 export const conflictService = {
   getAll: async (): Promise<Conflict[]> => {
-    const response = await api.get('/conflicts')
+    const response = await api.get('/conflicts/')
     return response.data
   },
 
@@ -130,17 +135,17 @@ export const conflictService = {
 // Sync
 export const syncService = {
   triggerSync: async (request: SyncRequest = {}): Promise<SyncRun> => {
-    const response = await api.post('/sync', request)
+    const response = await api.post('/sync/run', request)
     return response.data
   },
 
   getSyncHistory: async (): Promise<SyncRun[]> => {
-    const response = await api.get('/sync/history')
+    const response = await api.get('/sync/runs')
     return response.data
   },
 
   getSyncStatus: async (id: number): Promise<SyncRun> => {
-    const response = await api.get(`/sync/${id}`)
+    const response = await api.get(`/sync/runs/${id}`)
     return response.data
   }
 }

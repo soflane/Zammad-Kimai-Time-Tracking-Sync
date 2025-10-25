@@ -8,10 +8,7 @@ from app.schemas.mapping import MappingCreate, MappingUpdate, MappingInDB
 from app.schemas.auth import User
 from app.auth import get_current_active_user
 
-router = APIRouter(
-    prefix="/mappings",
-    tags=["mappings"]
-)
+router = APIRouter()
 
 @router.post("/", response_model=MappingInDB, status_code=status.HTTP_201_CREATED)
 async def create_mapping(

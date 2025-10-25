@@ -15,10 +15,7 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import decrypt_data
 
-router = APIRouter(
-    prefix="/sync",
-    tags=["sync"]
-)
+router = APIRouter()
 
 @router.post("/run", response_model=SyncResponse)
 async def run_sync(

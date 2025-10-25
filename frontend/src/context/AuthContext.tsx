@@ -25,8 +25,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         .then(userData => {
           setUser(userData)
         })
-        .catch(() => {
-          logout()
+        .catch((error) => {
+          // Only logout if we got a real auth error, not network issues
+          if (error.response?.status === 401) {
+            logout()
+          } else {
+            // For other errors, keep the token but log the error
+            console.error('Failed to verify token:', error)
+          }
         })
         .finally(() => setLoading(false))
     } else {
@@ -35,12 +41,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const login = async (username: string, password: string) => {
-    const loginData = await authService.login({ username, password })
-    localStorage.setItem('token', loginData.access_token)
-    setToken(loginData.access_token)
-    // Get user info after login
-    const userData = await authService.getCurrentUser()
-    setUser(userData)
+    try {
+      const loginData = await authService.login({ username, password })
+      localStorage.setItem('token', loginData.access_token)
+      setToken(loginData.access_token)
+      // Get user info after login
+      const userData = await authService.getCurrentUser()
+      setUser(userData)
+    } catch (error) {
+      // If login or user fetch fails, clean up
+      localStorage.removeItem('token')
+      setToken(null)
+      setUser(null)
+      throw error
+    }
   }
   const logout = () => {
     localStorage.removeItem('token')
