@@ -21,7 +21,7 @@ class KimaiConnector(BaseConnector):
         self.api_token = self.config["api_token"] # In a real app, this would be decrypted
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=30)
         self.headers = {
-            "X-API-TOKEN": self.api_token,
+            "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json"
         }
 

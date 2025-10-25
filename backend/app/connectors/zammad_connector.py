@@ -180,12 +180,20 @@ class ZammadConnector(BaseConnector):
 
     async def validate_connection(self) -> bool:
         """
-        Validates the connection to Zammad by trying to fetch a user or
-        making a simple API call.
+        Validates the connection to Zammad by trying to fetch a user and activities.
         """
         try:
-            await self._request("GET", "/api/v1/users/me") # Example: Fetch current user
+            # Basic connection test
+            await self._request("GET", "/api/v1/users/me")
+            
+            # Test activities fetch permissions
+            activities = await self.fetch_activities()
+            if not activities:
+                raise ValueError("Connection successful but no activities available. Check API token permissions for time accounting types.")
+            
             return True
+        except ValueError:
+            raise  # Re-raise ValueError for specific handling
         except Exception:
             return False
 
@@ -202,6 +210,9 @@ class ZammadConnector(BaseConnector):
             if e.response.status_code == 404:
                 log.warning(f"Zammad time accounting types endpoint not found: {e.request.url}. Returning empty activities list.")
                 return []
+            elif e.response.status_code in [401, 403]:
+                log.error(f"Permission error fetching Zammad activities: {e.response.status_code}")
+                raise ValueError(f"Insufficient permissions to access time accounting types (status {e.response.status_code}). Please check API token rights.")
             else:
                 log.error(f"Error fetching Zammad activities: {e}")
                 raise
