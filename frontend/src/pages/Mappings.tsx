@@ -3,10 +3,11 @@ import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/hooks/use-toast'
 import { mappingService, connectorService } from '@/services/api.service'
 import type { ActivityMapping, ActivityMappingCreate, Connector, Activity } from '@/types'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Plus, Trash2, Edit, MapPin, Database } from 'lucide-react'
+import { Loader2, Plus, Trash2, Edit, MapPin, Database, AlertCircle } from 'lucide-react'
 
 interface MappingFormData {
   zammad_type_id: number
@@ -217,13 +218,23 @@ export default function Mappings() {
       </div>
 
       {!hasActiveConnectors && (
-        <Card className="border-yellow-500">
-          <CardContent className="p-6">
-            <p className="text-sm text-yellow-700">
-              Please configure and activate both Zammad and Kimai connectors before creating mappings.
-            </p>
-          </CardContent>
-        </Card>
+        <Alert variant="default" className="border-yellow-500">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Connectors Required</AlertTitle>
+          <AlertDescription>
+            Please configure and activate both Zammad and Kimai connectors before creating mappings.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {hasActiveConnectors && (zammadActivities.length === 0 || kimaiActivities.length === 0) && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Unable to Load Activities</AlertTitle>
+          <AlertDescription>
+            {zammadActivities.length === 0 ? 'Zammad: ' : ''}No activities could be loaded from the Zammad connector. Please validate your connector configuration and ensure the API token has the necessary permissions.{kimaiActivities.length === 0 ? ' Kimai: No activities could be loaded from the Kimai connector.' : ''}
+          </AlertDescription>
+        </Alert>
       )}
 
       {mappings.length === 0 ? (

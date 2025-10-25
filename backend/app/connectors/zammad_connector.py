@@ -191,9 +191,20 @@ class ZammadConnector(BaseConnector):
 
     async def fetch_activities(self) -> List[Dict[str, Any]]:
         """Fetches available activity types from Zammad."""
-        # Zammad uses "time_accountings/types" as activity types
-        response_data = await self._request("GET", "/api/v1/time_accounting_types")
-        return [
-            {"id": item["id"], "name": item["name"]}
-            for item in response_data
-        ]
+        try:
+            # Zammad uses "/api/v1/time_accounting/types" for types
+            response_data = await self._request("GET", "/api/v1/time_accounting/types")
+            return [
+                {"id": item["id"], "name": item["name"]}
+                for item in response_data if item.get("active", True)
+            ]
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                log.warning(f"Zammad time accounting types endpoint not found: {e.request.url}. Returning empty activities list.")
+                return []
+            else:
+                log.error(f"Error fetching Zammad activities: {e}")
+                raise
+        except Exception as e:
+            log.error(f"Unexpected error fetching Zammad activities: {e}")
+            raise

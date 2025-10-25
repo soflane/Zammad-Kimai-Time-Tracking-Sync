@@ -25,9 +25,14 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # Database connection
       DATABASE_URL: postgresql://postgres:changeme@db:5432/zammad_sync
-      SECRET_KEY: your-secret-key-here  # Generate and set
-      ENCRYPTION_KEY: your-encryption-key-here  # Generate and set
+      POSTGRES_DB: zammad_sync
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: changeme
+      # Application secrets
+      SECRET_KEY: Trntc9P4ftfpyYhu3Zqdv0opoVZORJfUtfRKutm1ogo
+      ENCRYPTION_KEY: q_Xuo4atV_VMI5x0ho8lpGsnbp1EDIczZ6tZZc6pJr4=
       ADMIN_USERNAME: admin
       ADMIN_PASSWORD: changeme  # Change for security
       CORS_ORIGINS: http://localhost:5173,http://localhost:3000

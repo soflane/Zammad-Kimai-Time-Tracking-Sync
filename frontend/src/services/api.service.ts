@@ -64,7 +64,7 @@ export const connectorService = {
   },
 
   update: async (id: number, connector: ConnectorUpdate): Promise<Connector> => {
-    const response = await api.put(`/connectors/${id}`, connector)
+    const response = await api.patch(`/connectors/${id}`, connector)
     return response.data
   },
 

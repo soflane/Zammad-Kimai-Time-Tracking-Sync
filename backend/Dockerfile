@@ -12,6 +12,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Stage 2: Runtime
 FROM python:3.11-slim
 
+# Install postgresql-client for database checks and curl for health checks
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends postgresql-client curl && \
+    rm -rf /var/lib/apt/lists/*
+
 # Set working directory
 WORKDIR /app
 
@@ -21,6 +26,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY . .
+
+# Set execute permissions on entrypoint script (as root)
+RUN chmod +x /app/entrypoint.sh
 
 # Create non-root user for security
 RUN useradd --create-home appuser && chown -R appuser:appuser /app
@@ -33,5 +41,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:8000/api/health || exit 1
 
-# Run migrations and start server
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Run entrypoint script
+CMD ["/app/entrypoint.sh"]

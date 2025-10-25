@@ -13,6 +13,9 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import encrypt_data, decrypt_data
 
+import logging
+log = logging.getLogger(__name__)
+
 router = APIRouter()
 
 CONNECTOR_TYPES = {
@@ -21,7 +24,7 @@ CONNECTOR_TYPES = {
 }
 
 class ConnectorValidationResult(BaseModel):
-    success: bool
+    valid: bool
     message: str
 
 class Activity(BaseModel):
@@ -38,11 +41,16 @@ async def get_connector_instance(db_conn: DBConnector) -> BaseConnector:
             detail=f"Unknown connector type: {db_conn.type}"
         )
     
+    base_url = str(db_conn.base_url)
+    if base_url.startswith("http://"):
+        base_url = base_url.replace("http://", "https://")
+        # For now, just use HTTPS for the instance; update DB on successful validation if needed
+    
     decrypted_token = decrypt_data(db_conn.api_token)
     config = {
-        "base_url": str(db_conn.base_url),
+        "base_url": base_url,
         "api_token": decrypted_token,
-        ** (db_conn.settings or {})
+        **(db_conn.settings or {})
     }
     return connector_class(config)
 
@@ -164,14 +172,11 @@ async def validate_connector_config(
         connector_instance = await get_connector_instance(db_connector)
         is_valid = await connector_instance.validate_connection()
         if is_valid:
-            return ConnectorValidationResult(success=True, message="Connection successful!")
+            return ConnectorValidationResult(valid=True, message="Connection successful!")
         else:
-            return ConnectorValidationResult(success=False, message="Connection failed. Check credentials or URL.")
+            return ConnectorValidationResult(valid=False, message="Connection failed. Check credentials or URL.")
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error validating connection: {e}"
-        )
+        return ConnectorValidationResult(valid=False, message=f"Validation error: {str(e)}")
 
 @router.get("/{connector_id}/activities", response_model=List[Activity])
 async def get_connector_activities(
@@ -191,7 +196,5 @@ async def get_connector_activities(
         activities_data = await connector_instance.fetch_activities()
         return [Activity(**activity) for activity in activities_data]
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error fetching activities: {e}"
-        )
+        log.error(f"Error fetching activities for connector {connector_id}: {str(e)}")
+        return []

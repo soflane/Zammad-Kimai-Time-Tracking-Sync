@@ -66,6 +66,10 @@ async def root():
 
 app.include_router(api_router, prefix=settings.api_v1_str)
 
+import logging
+
+log = logging.getLogger(__name__)
+
 from fastapi import Request, HTTPException
 from fastapi.responses import JSONResponse
 

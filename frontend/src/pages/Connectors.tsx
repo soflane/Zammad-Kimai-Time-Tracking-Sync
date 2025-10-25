@@ -99,6 +99,29 @@ export default function Connectors() {
       return
     }
 
+    // Validate URL
+    let url: URL
+    try {
+      url = new URL(formData.base_url)
+      if (!url.protocol) {
+        throw new Error("Invalid URL format")
+      }
+      if (formData.base_url.startsWith("http://")) {
+        toast({
+          title: "Security recommendation",
+          description: "Consider using HTTPS for secure connections. The URL will be automatically upgraded.",
+          variant: "default"
+        })
+      }
+    } catch (e) {
+      toast({
+        title: "Invalid URL",
+        description: "Please enter a valid URL (e.g., https://example.com)",
+        variant: "destructive"
+      })
+      return
+    }
+
     setSaving(true)
     try {
       if (editing && editing !== 0) {
