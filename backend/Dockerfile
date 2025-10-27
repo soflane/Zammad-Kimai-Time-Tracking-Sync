@@ -1,6 +1,6 @@
 # Multi-stage Dockerfile for Zammad-Kimai Sync Backend
 # Stage 1: Builder
-FROM python:3.11-slim AS builder
+FROM python:3.14-slim AS builder
 
 WORKDIR /app
 
@@ -10,7 +10,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Runtime
-FROM python:3.11-slim
+FROM python:3.14-slim
 
 # Install postgresql-client for database checks and curl for health checks
 RUN apt-get update && \
