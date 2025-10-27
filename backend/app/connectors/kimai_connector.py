@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 from app.connectors.base import BaseConnector, TimeEntryNormalized
 from app.config import settings
-# from app.encrypt import decrypt_data  # Assuming an encryption utility for API tokens
+from app.utils.encrypt import decrypt_data
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class KimaiConnector(BaseConnector):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.base_url = self.config["base_url"]
-        self.api_token = self.config["api_token"] # In a real app, this would be decrypted
+        self.api_token = decrypt_data(self.config["api_token"])
         self.client = httpx.AsyncClient(base_url=self.base_url, timeout=30)
         self.headers = {
             "Authorization": f"Bearer {self.api_token}",
@@ -85,14 +85,14 @@ class KimaiConnector(BaseConnector):
         # For now, let's assume we have a way to get a project_id.
         project_id = self.config.get("default_project_id", 1) # Placeholder: retrieve from config
 
-        begin_dt = datetime.fromisoformat(time_entry.created_at.replace("Z", "+00:00")) # Assuming created_at as begin time
+        begin_dt = datetime.strptime(time_entry.entry_date, '%Y-%m-%d')
         end_dt = begin_dt + timedelta(minutes=time_entry.time_minutes)
 
         kimai_payload = {
             "project": project_id,
             "activity": time_entry.activity_type_id,
-            "begin": begin_dt.isoformat(sep='T', timespec='seconds'), # HTML5 datetime format
-            "end": end_dt.isoformat(sep='T', timespec='seconds'),
+            "begin": begin_dt.strftime('%Y-%m-%dT%H:%M:%S'), # HTML5 local datetime format
+            "end": end_dt.strftime('%Y-%m-%dT%H:%M:%S'),
             "description": time_entry.description,
             "tags": time_entry.tags,
             "fixedRate": 0, # Assuming no fixed rate
@@ -129,13 +129,13 @@ class KimaiConnector(BaseConnector):
         if not time_entry.source_id or not time_entry.activity_type_id:
             raise ValueError("Kimai time entry update requires source_id and activity_type_id.")
 
-        begin_dt = datetime.fromisoformat(time_entry.created_at.replace("Z", "+00:00"))
+        begin_dt = datetime.strptime(time_entry.entry_date, '%Y-%m-%d')
         end_dt = begin_dt + timedelta(minutes=time_entry.time_minutes)
 
         kimai_payload = {
             "activity": time_entry.activity_type_id,
-            "begin": begin_dt.isoformat(sep='T', timespec='seconds'),
-            "end": end_dt.isoformat(sep='T', timespec='seconds'),
+            "begin": begin_dt.strftime('%Y-%m-%dT%H:%M:%S'),
+            "end": end_dt.strftime('%Y-%m-%dT%H:%M:%S'),
             "description": time_entry.description,
             "tags": time_entry.tags,
         }

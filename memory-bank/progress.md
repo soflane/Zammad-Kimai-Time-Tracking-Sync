@@ -79,6 +79,8 @@
 
 ### Phase 8: Testing & Polish
 - [x] Enhanced web UI design with modern components, sidebar navigation, stat cards, responsive layouts, icons, and improved user experience across all pages (Dashboard, Login, Connectors, Mappings, Conflicts, Audit Logs)
+- [x] Fixed Kimai connector sync issues: Added token decryption, local datetime formatting using entry_date, project_id placeholder
+- [x] Project cleanup: Stashed unfinished changes, cleaned dependencies, pruned Docker (16GB reclaimed)
 - [ ] Integration testing
 - [ ] Error handling refinement
 - [ ] Performance optimization
@@ -86,9 +88,9 @@
 - [ ] Deployment guide
 
 ## Known Issues
-- Authentication system fully functional with demo user (admin/changeme)
-- Frontend login flow integrated and working via Docker at http://localhost:3000
-- UI enhancements complete: Modern responsive design implemented across all pages
+- Frontend has 4 npm vulnerabilities (2 moderate, 2 high) - run `npm audit fix` in frontend/
+- Sync tested with single mapping; verify multi-mapping and configure default_project_id for full coverage
+- Authentication and UI functional as before
 
 ## Notes
 - Starting with database-first approach for solid foundation
