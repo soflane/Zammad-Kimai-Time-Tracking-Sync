@@ -116,14 +116,50 @@ class SyncService:
                     log.debug(f"MISSING IN KIMAI: Zammad entry {reconciled_entry.zammad_entry.source_id} not found in Kimai. Attempting creation...")
                     zammad_entry = reconciled_entry.zammad_entry
                     
-                    # Lookup activity mapping
-                    mapping = self.db.query(ActivityMapping).filter(
-                        ActivityMapping.zammad_type_id == zammad_entry.activity_type_id,
-                        ActivityMapping.is_active == True
-                    ).first()
+                    # Determine Kimai activity ID
+                    kimai_activity_id = None
                     
-                    if mapping:
-                        try:
+                    # Try to find activity mapping
+                    if zammad_entry.activity_type_id is not None:
+                        mapping = self.db.query(ActivityMapping).filter(
+                            ActivityMapping.zammad_type_id == zammad_entry.activity_type_id,
+                            ActivityMapping.is_active == True
+                        ).first()
+                        if mapping:
+                            kimai_activity_id = mapping.kimai_activity_id
+                            log.debug(f"Found activity mapping: Zammad {zammad_entry.activity_type_id} → Kimai {kimai_activity_id}")
+                    
+                    # Use default activity if no mapping found
+                    if kimai_activity_id is None:
+                        # Debug: show config structure
+                        log.debug(f"Kimai connector config: {self.kimai_connector.config}")
+                        settings = self.kimai_connector.config.get("settings", {})
+                        log.debug(f"Kimai connector settings: {settings}")
+                        default_activity_id = settings.get("default_activity_id")
+                        
+                        if default_activity_id:
+                            kimai_activity_id = int(default_activity_id)  # Ensure it's an integer
+                            log.info(f"Using default Kimai activity {kimai_activity_id} for unmapped Zammad activity {zammad_entry.activity_type_id}")
+                        else:
+                            log.warning(f"No mapping for activity_type_id {zammad_entry.activity_type_id} and no default_activity_id configured.")
+                            log.warning(f"To fix: Go to Connectors page → Edit Kimai connector → Add 'default_activity_id' field with a valid Kimai activity ID (e.g., 1)")
+                            conflict_data = ConflictCreate(
+                                conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
+                                zammad_data=zammad_entry.model_dump(),
+                                kimai_data=None,
+                                notes=f"Unmapped activity type {zammad_entry.activity_type_id}; configure mapping or set default_activity_id in Kimai connector settings"
+                            )
+                            db_conflict = DBConflict(**conflict_data.model_dump())
+                            self.db.add(db_conflict)
+                            self.db.commit()
+                            self.db.refresh(db_conflict)
+                            stats["conflicts"] += 1
+                            stats["unmapped"] += 1
+                            log.info(f"Logged unmapped conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
+                            continue
+                    
+                    # Proceed with creation using determined activity ID
+                    try:
                             # Step 1: Determine customer name
                             log.debug(f"Determining customer for Zammad entry {zammad_entry.source_id}")
                             customer_name = self._determine_customer_name(zammad_entry)
@@ -141,12 +177,12 @@ class SyncService:
                             
                             # Step 4: Create timesheet with proper formatting
                             log.debug(f"Creating timesheet for Zammad entry {zammad_entry.source_id}")
-                            timesheet = await self._create_timesheet(zammad_entry, project['id'], mapping.kimai_activity_id)
+                            timesheet = await self._create_timesheet(zammad_entry, project['id'], kimai_activity_id)
                             log.info(f"Successfully created Kimai timesheet: {timesheet.get('id')}")
                             stats["created"] += 1
                             # Future: Store linkage in our database
                             
-                        except ValueError as e:
+                    except ValueError as e:
                             log.error(f"Failed to create Kimai entry for Zammad {zammad_entry.source_id}: {e}")
                             log.debug(f"ValueError details: {str(e)}")
                             # Store as conflict
@@ -162,36 +198,21 @@ class SyncService:
                             self.db.refresh(db_conflict)
                             stats["conflicts"] += 1
                             log.info(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
-                        except Exception as e:
-                            log.error(f"Unexpected error creating Kimai entry for Zammad {zammad_entry.source_id}: {e}")
-                            log.error(f"Stack trace: {traceback.format_exc()}")
-                            conflict_data = ConflictCreate(
-                                conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
-                                zammad_data=zammad_entry.model_dump(),
-                                kimai_data=None,
-                                notes=f"Unexpected error: {str(e)}"
-                            )
-                            db_conflict = DBConflict(**conflict_data.model_dump())
-                            self.db.add(db_conflict)
-                            self.db.commit()
-                            self.db.refresh(db_conflict)
-                            stats["conflicts"] += 1
-                            log.info(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
-                    else:
-                        log.warning(f"No active mapping found for Zammad activity_type_id {zammad_entry.activity_type_id}. Logging as conflict.")
-                        log.debug(f"Looking for mapping with zammad_type_id: {zammad_entry.activity_type_id}")
+                    except Exception as e:
+                        log.error(f"Unexpected error creating Kimai entry for Zammad {zammad_entry.source_id}: {e}")
+                        log.error(f"Stack trace: {traceback.format_exc()}")
                         conflict_data = ConflictCreate(
                             conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
                             zammad_data=zammad_entry.model_dump(),
                             kimai_data=None,
-                            notes=f"Unmapped activity type {zammad_entry.activity_type_id}; configure mapping first"
+                            notes=f"Unexpected error: {str(e)}"
                         )
                         db_conflict = DBConflict(**conflict_data.model_dump())
                         self.db.add(db_conflict)
                         self.db.commit()
                         self.db.refresh(db_conflict)
                         stats["conflicts"] += 1
-                        log.info(f"Logged unmapped conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
+                        log.info(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
 
                 elif reconciled_entry.reconciliation_status == ReconciliationStatus.CONFLICT:
                     log.warning(f"CONFLICT: Zammad {reconciled_entry.zammad_entry.source_id} and Kimai {reconciled_entry.kimai_entry.source_id} differ. Logging conflict...")
