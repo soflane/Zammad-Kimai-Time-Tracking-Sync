@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Loader2, Plus, Trash2, Database } from 'lucide-react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Loader2, Plus, Trash2, Database, AlertTriangle } from 'lucide-react'
 
 interface ConnectorFormData {
   type: 'zammad' | 'kimai'
@@ -369,6 +370,16 @@ export default function Connectors() {
                   value={formData.base_url}
                   onChange={(e) => setFormData({ ...formData, base_url: e.target.value })}
                 />
+                {formData.type === 'kimai' && formData.base_url.startsWith('http://') && (
+                  <Alert className="mt-2 border-yellow-500 bg-yellow-50">
+                    <AlertTriangle className="h-4 w-4 text-yellow-600" />
+                    <AlertDescription className="text-sm text-yellow-800">
+                      <strong>Security Notice:</strong> Kimai requires HTTPS for secure connections. 
+                      The system will automatically redirect HTTP to HTTPS, but please update the URL 
+                      to <span className="font-mono">https://</span> for better reliability.
+                    </AlertDescription>
+                  </Alert>
+                )}
               </div>
               <div>
                 <label className="text-sm font-medium mb-2 block">

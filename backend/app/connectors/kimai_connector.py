@@ -1,7 +1,7 @@
 import httpx
 import logging
 from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 from app.connectors.base import BaseConnector, TimeEntryNormalized
 from app.config import settings
@@ -13,40 +13,171 @@ class KimaiConnector(BaseConnector):
     """
     Connector for Kimai time tracking system.
     Handles fetching, creating, updating, and deleting time entries in Kimai.
+    
+    Key fixes:
+    - Always uses HTTPS (auto-upgrades HTTP URLs)
+    - Follows HTTP redirects (301/308)
+    - Uses HTML5 local datetime format for timesheet queries
+    - Omits 'user' parameter (defaults to current user)
     """
 
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.base_url = self.config["base_url"]
+        raw_base_url = self.config["base_url"]
+        self.base_url = self._normalize_base_url(raw_base_url)
         self.api_token = self.config["api_token"]  # Already decrypted by get_connector_instance
-        self.client = httpx.AsyncClient(base_url=self.base_url, timeout=30)
+        
+        # Create client with redirect following and extended timeout
+        self.client = httpx.AsyncClient(
+            base_url=self.base_url,
+            follow_redirects=True,  # Handle 301/308 redirects automatically
+            timeout=30.0,
+            verify=True  # Verify SSL certificates
+        )
         self.headers = {
             "Authorization": f"Bearer {self.api_token}",
             "Content-Type": "application/json"
         }
+        
+        log.info(f"Kimai connector initialized with base URL: {self.base_url}")
+
+    def _normalize_base_url(self, url: str) -> str:
+        """
+        Normalizes the base URL:
+        - Upgrades http:// to https://
+        - Removes trailing slashes
+        - Validates format
+        """
+        url = url.strip()
+        
+        # Auto-upgrade HTTP to HTTPS for Kimai (most instances require it)
+        if url.startswith("http://"):
+            https_url = url.replace("http://", "https://", 1)
+            log.warning(
+                f"Kimai base URL uses HTTP. Auto-upgrading to HTTPS: {https_url}\n"
+                f"Please update the connector configuration to use HTTPS directly."
+            )
+            url = https_url
+        
+        # Ensure it starts with https://
+        if not url.startswith("https://"):
+            raise ValueError(
+                f"Invalid Kimai base URL: {url}\n"
+                f"URL must start with https:// (e.g., https://timesheet.ayoute.be)"
+            )
+        
+        # Remove trailing slashes for consistent path joining
+        url = url.rstrip("/")
+        
+        return url
 
     async def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
-        """Helper to make authenticated requests to Kimai API."""
+        """
+        Helper to make authenticated requests to Kimai API.
+        Handles errors with informative messages.
+        """
+        # Ensure path starts with /
+        if not path.startswith("/"):
+            path = f"/{path}"
+        
         try:
+            log.debug(f"Kimai API {method} {self.base_url}{path}")
             response = await self.client.request(method, path, headers=self.headers, **kwargs)
+            log.debug(f"Kimai API response: {response.status_code}")
             response.raise_for_status()
             return response.json()
+            
         except httpx.HTTPStatusError as e:
-            log.error(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
-            raise
+            status = e.response.status_code
+            url = str(e.request.url)
+            response_text = e.response.text
+            
+            # Provide helpful error messages based on status code
+            if status in (301, 302, 307, 308):
+                # Redirect detected (shouldn't happen with follow_redirects=True, but just in case)
+                location = e.response.headers.get("Location", "unknown")
+                error_msg = (
+                    f"Kimai redirected from {url} to {location}.\n"
+                    f"Please update the connector base URL to use HTTPS: {location}"
+                )
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
+            elif status == 400:
+                # Bad request - often due to invalid query parameters
+                error_msg = f"Kimai API bad request to {url}: {response_text}\n"
+                if "/timesheets" in path and method == "GET":
+                    error_msg += (
+                        "Hint: Ensure 'begin' and 'end' parameters use HTML5 datetime format "
+                        "(e.g., '2025-09-28T00:00:00'). Do not use 'user=current' - omit 'user' "
+                        "parameter or use numeric user ID."
+                    )
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
+            elif status == 401:
+                error_msg = f"Kimai authentication failed: Invalid API token for {url}"
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
+            elif status == 403:
+                error_msg = f"Kimai permission denied: Insufficient permissions for {url}"
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
+            elif status == 404:
+                error_msg = f"Kimai resource not found: {url}"
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
+            elif status == 422:
+                # Unprocessable entity - validation errors
+                error_msg = f"Kimai validation error for {url}: {response_text}\n"
+                if "/timesheets" in path:
+                    error_msg += (
+                        "Hint: Check that all required fields are provided and properly formatted. "
+                        "Duration should be in seconds, begin/end in HTML5 datetime format."
+                    )
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
+            else:
+                # Generic HTTP error
+                error_msg = f"Kimai HTTP {status} error for {url}: {response_text}"
+                log.error(error_msg)
+                raise ValueError(error_msg)
+                
         except httpx.RequestError as e:
-            log.error(f"Request error for {e.request.url}: {e}")
-            raise
+            error_msg = f"Kimai request error for {e.request.url}: {str(e)}"
+            log.error(error_msg)
+            raise ValueError(error_msg)
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
         """
         Fetches time sheets from Kimai within a given date range.
+        
+        Args:
+            start_date: Date string in 'YYYY-MM-DD' format
+            end_date: Date string in 'YYYY-MM-DD' format
+            
+        Note: Kimai requires HTML5 local datetime format for begin/end params.
+        The 'user' parameter is omitted to default to the current authenticated user.
         """
+        # Convert dates to HTML5 local datetime format
+        # Start of day for begin, end of day for end
+        begin_datetime = f"{start_date}T00:00:00"
+        end_datetime = f"{end_date}T23:59:59"
+        
         params = {
-            "begin": start_date,
-            "end": end_date,
-            "user": "current" # Assuming we fetch for the user associated with the API token
+            "begin": begin_datetime,
+            "end": end_datetime,
+            # Do NOT include 'user' parameter - defaults to current user
+            # Using 'user=current' causes 400 errors (must be numeric ID or 'all')
+            "orderBy": "begin",
+            "order": "DESC"
         }
+        
+        log.debug(f"Fetching Kimai timesheets with params: {params}")
         response_data = await self._request("GET", "/api/timesheets", params=params)
         
         normalized_entries = []

@@ -80,6 +80,11 @@ class ZammadConnector(BaseConnector):
 
             # Convert to normalized entries
             for key, data in grouped.items():
+                if data["total_minutes"] <= 0:
+                    continue  # Skip zero-duration entries
+
+                user_email = data["user_emails"][0] if data["user_emails"] else "unknown@zammad.com"
+                description = data["description"] if data["description"] else f"Time tracking for ticket {data['ticket_number']}"
                 normalized_entries.append(TimeEntryNormalized(
                     source_id=f"{data['ticket_id']}_{data['activity_type_id']}_{data['entry_date']}",  # Unique ID for aggregated
                     source="zammad",
@@ -89,10 +94,11 @@ class ZammadConnector(BaseConnector):
                     org_id=data["org_id"],
                     org_name=data["org_name"],
                     user_emails=data["user_emails"],
-                    description=data["description"],
+                    description=description,
                     time_minutes=data["total_minutes"],
                     activity_type_id=data["activity_type_id"],
                     activity_name=data["activity_name"],
+                    user_email=user_email,
                     entry_date=data["entry_date"],
                     created_at=data["created_at"],
                     updated_at=data["updated_at"],

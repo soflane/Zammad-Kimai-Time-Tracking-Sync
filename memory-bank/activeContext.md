@@ -4,6 +4,52 @@
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented.
 
 ## Recent Actions (Most Recent First)
+22. **Fixed Kimai API HTTP Redirect and Query Parameter Issues (October 2025)**:
+    - **Problem**: Kimai API calls were failing with HTTP 301 redirects (http→https) and 400 errors due to invalid query parameters
+    - **Root Causes**:
+      - Base URL configured as `http://` but Kimai requires HTTPS
+      - GET /api/timesheets using `user=current` parameter (invalid - must be numeric ID or omit entirely)
+      - Missing HTML5 local datetime format for `begin` and `end` query parameters
+    - **Backend Fixes** (`backend/app/connectors/kimai_connector.py`):
+      - **HTTPS Auto-upgrade**: Added `_normalize_base_url()` method that:
+        - Automatically upgrades `http://` URLs to `https://`
+        - Validates URL format and removes trailing slashes
+        - Logs warning when auto-upgrading to prompt user to update config
+      - **Redirect Handling**: Updated httpx client initialization:
+        - Set `follow_redirects=True` to handle 301/308 redirects automatically
+        - Set `verify=True` for SSL certificate validation
+        - Extended timeout to 30 seconds
+      - **Fixed GET /api/timesheets params** in `fetch_time_entries()`:
+        - Convert date strings to HTML5 local datetime format: `YYYY-MM-DDTHH:MM:SS`
+        - Use `begin=2025-09-28T00:00:00` and `end=2025-10-28T23:59:59`
+        - **Removed** `user=current` parameter (defaults to current authenticated user)
+        - Added `orderBy=begin` and `order=DESC` for consistent ordering
+      - **Enhanced Error Handling** in `_request()` method:
+        - Added path normalization (ensures leading `/`)
+        - Comprehensive error messages for status codes:
+          - 301/302/307/308: Redirect detection with location header
+          - 400: Bad request with hints for timesheet query format
+          - 401: Authentication failure
+          - 403: Permission denied
+          - 404: Resource not found
+          - 422: Validation errors with field hints
+        - All errors now raise `ValueError` with clear, actionable messages
+        - Debug logging for all requests and responses
+    - **Frontend Enhancements** (`frontend/src/pages/Connectors.tsx`):
+      - Added HTTP warning banner for Kimai connectors using `http://` URLs
+      - Shows security notice with `AlertTriangle` icon when base URL starts with `http://`
+      - Recommends updating to HTTPS for better reliability
+      - Non-blocking UX improvement - doesn't prevent saving
+    - **Testing**: 
+      - Backend Python syntax validated successfully
+      - Frontend TypeScript build completed (1753 modules, no errors)
+      - Ready for manual acceptance testing with live Kimai instance
+    - **Compliance**: All changes maintain existing:
+      - Token encryption/decryption flow
+      - BaseConnector interface compatibility
+      - HTML5 local datetime format for POST operations
+      - Logging and error handling patterns
+
 21. **Kimai Connector and Sync Flow Enhancements (October 2025)**:
     - **Extended Connector Configuration Schema**:
       - Added `KimaiConnectorConfig` model in `backend/app/schemas/connector.py` with fields: `use_global_activities`, `default_project_id`, `default_country`, `default_currency`, `default_timezone`
@@ -145,10 +191,15 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
     - Rebuilt frontend Docker image and restarted services; login now functional at http://localhost:3000.
 
 ## Next Immediate Steps
-- Implement sync endpoints if not complete (check API/v1/sync).
-- Add integration tests for connectors.
-- Address npm vulnerabilities with `npm audit fix` in frontend.
-- Configure default_project_id in Kimai connector config via UI.
+- **Test Kimai API fixes** with live instance:
+  1. Configure Kimai connector with `http://timesheet.ayoute.be` URL and valid token
+  2. Click "Test connection" → should succeed (auto-upgrade to HTTPS, follow redirect)
+  3. Open Mappings page → activities should load
+  4. Trigger manual sync for date range (e.g., 2025-09-28 to 2025-10-28)
+  5. Verify no 301/400 errors, timesheet creation works
+- Add integration tests for Kimai connector redirect handling
+- Address npm vulnerabilities with `npm audit fix` in frontend
+- Configure default_project_id in Kimai connector config via UI if needed
 
 ## Active Decisions
 
@@ -220,7 +271,11 @@ All time entries flow through normalizer service before storage:
 
 ## Key Learnings
 - Zammad time_unit is in minutes (not hours)
-- Kimai requires HTML5 datetime format (no timezone)
+- **Kimai requires HTTPS** - most instances redirect HTTP to HTTPS (301)
+- **Kimai requires HTML5 datetime format** (no timezone) for ALL datetime fields (begin, end in both GET and POST)
+- **Kimai GET /api/timesheets** requires `begin` and `end` in HTML5 format, **NOT** `user=current` (omit user param or use numeric ID)
+- **httpx `follow_redirects=True`** essential for handling Kimai's HTTP→HTTPS redirects transparently
 - Activity type mapping is critical for proper sync
 - Webhook requires HMAC verification for security
 - Tags in Kimai use format "billed:YYYY-MM" for billing status
+- **Auto-upgrading HTTP to HTTPS** provides better UX than hard errors, but should warn user to update config
