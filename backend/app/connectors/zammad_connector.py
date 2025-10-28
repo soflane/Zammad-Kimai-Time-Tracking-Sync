@@ -39,70 +39,67 @@ class ZammadConnector(BaseConnector):
             raise
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
-        """
-        Fetches time accounting entries from Zammad within a given date range.
-        Zammad's API doesn't directly support filtering time_accountings by date.
-        We'll fetch time_accountings for each ticket within the range, which might be inefficient
-        and should be optimized if Zammad provides better filtering in the future.
-        For now, this will serve as a basic implementation.
-        """
-        # This is a simplification. A more robust solution would involve fetching tickets
-        # created/updated in the range and then their time accountings.
-        # Zammad API limitation: no direct date filtering for /time_accountings.
+        """Fetches aggregated time entries from Zammad by ticket, date, and activity."""
+        # Fetch all tickets updated/created in the date range
+        tickets = await self.fetch_tickets_by_date(start_date, end_date)
+        normalized_entries = []
+        for ticket in tickets:
+            if ticket.get("organization_id"):
+                org = await self.fetch_organization(ticket["organization_id"])
+                users = await self.fetch_users_by_org(ticket["organization_id"])
+            else:
+                org = None
+                users = []
 
-        # For demonstration, let's assume we can query time_accountings by user and
-        # filter them manually by creation date in application logic if necessary.
-        # This example will fetch all relevant time_accountings and filter them after.
+            # Fetch time accountings for this ticket
+            time_accountings = await self.fetch_ticket_time_accountings(ticket["id"], start_date, end_date)
+            
+            # Group by activity_type_id and entry_date, sum time
+            grouped = {}
+            for entry in time_accountings:
+                date = entry.get("created_at", "").split("T")[0]
+                activity_id = entry.get("type_id")
+                key = (ticket["id"], date, activity_id)
+                if key not in grouped:
+                    grouped[key] = {
+                        "ticket_id": ticket["id"],
+                        "ticket_number": ticket["number"],
+                        "ticket_title": ticket["title"],
+                        "org_id": ticket.get("organization_id"),
+                        "org_name": org["name"] if org else None,
+                        "user_emails": [u.get("email") for u in users] if users else [],
+                        "activity_type_id": activity_id,
+                        "activity_name": entry.get("type", {}).get("name") if isinstance(entry.get("type"), dict) else entry.get("type", ""),
+                        "description": entry.get("note", ""),
+                        "entry_date": date,
+                        "created_at": entry.get("created_at"),
+                        "updated_at": entry.get("updated_at"),
+                        "total_minutes": 0
+                    }
+                grouped[key]["total_minutes"] += float(entry.get("time", 0))
 
-        # Let's assume an endpoint or strategy to fetch relevant time_accountings.
-        # Given Zammad's API, it's usually tied to a ticket_id.
-        # For a full sync, we'd iterate through tickets updated within the range,
-        # then fetch time accountings for each.
+            # Convert to normalized entries
+            for key, data in grouped.items():
+                normalized_entries.append(TimeEntryNormalized(
+                    source_id=f"{data['ticket_id']}_{data['activity_type_id']}_{data['entry_date']}",  # Unique ID for aggregated
+                    source="zammad",
+                    ticket_number=data["ticket_number"],
+                    ticket_id=data["ticket_id"],
+                    ticket_title=data["ticket_title"],  # Add to model if needed
+                    org_id=data["org_id"],
+                    org_name=data["org_name"],
+                    user_emails=data["user_emails"],
+                    description=data["description"],
+                    time_minutes=data["total_minutes"],
+                    activity_type_id=data["activity_type_id"],
+                    activity_name=data["activity_name"],
+                    entry_date=data["entry_date"],
+                    created_at=data["created_at"],
+                    updated_at=data["updated_at"],
+                    tags=[]
+                ))
 
-        # For now, we will simulate fetching some entries.
-        # In a real scenario, this would likely involve a complex query or multiple calls.
-        # This `fetch_time_entries` implementation cannot be truly implemented
-        # without knowing how to get a list of relevant ticket IDs for the date range
-        # first, or if Zammad provides a global time_accountings endpoint with date filters.
-
-        # Placeholder for actual implementation:
-        log.info(f"Fetching Zammad time entries from {start_date} to {end_date}. (Implementation for fetching from Zammad API needs refinement based on available endpoints)")
-        
-        # Simulating a list of TimeEntryNormalized objects
-        # In actual implementation, parse Zammad API response into TimeEntryNormalized objects
-        mock_entries = [
-            TimeEntryNormalized(
-                source_id="12345",
-                source="zammad",
-                ticket_number="#1001",
-                ticket_id=1001,
-                description="Worked on issue #1001",
-                time_minutes=60.0,
-                activity_type_id=1,
-                activity_name="Support",
-                user_email="user@example.com",
-                entry_date="2024-01-15",
-                created_at="2024-01-15T10:00:00Z",
-                updated_at="2024-01-15T10:00:00Z",
-                tags=["billed:2024-01"]
-            ),
-            TimeEntryNormalized(
-                source_id="12346",
-                source="zammad",
-                ticket_number="#1002",
-                ticket_id=1002,
-                description="Investigated bug #1002",
-                time_minutes=30.0,
-                activity_type_id=2,
-                activity_name="Development",
-                user_email="user@example.com",
-                entry_date="2024-01-16",
-                created_at="2024-01-16T11:00:00Z",
-                updated_at="2024-01-16T11:00:00Z",
-                tags=["billed:2024-01"]
-            )
-        ]
-        return mock_entries
+        return normalized_entries
 
     async def create_time_entry(self, time_entry: TimeEntryNormalized) -> TimeEntryNormalized:
         """Creates a time entry in Zammad."""
