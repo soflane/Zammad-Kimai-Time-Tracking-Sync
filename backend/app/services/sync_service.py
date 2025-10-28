@@ -50,25 +50,37 @@ class SyncService:
             stats = {
                 "processed": 0,
                 "created": 0,
-                "conflicts": 0
+                "conflicts": 0,
+                "zammad_fetched": 0,
+                "kimai_fetched": 0,
+                "reconciled_matches": 0,
+                "reconciled_missing_kimai": 0,
+                "reconciled_conflicts": 0,
+                "unmapped": 0
             }
 
-            # 1. Fetch entries from Zammad
+            # 1. Fetch entries from Zammad (already normalized by connector)
             log.debug("Fetching Zammad entries...")
-            zammad_raw_entries = await self.zammad_connector.fetch_time_entries(start_date, end_date)
-            zammad_normalized_entries: List[TimeEntryNormalized] = []
-            for entry in zammad_raw_entries:
-                zammad_normalized_entries.append(self.normalizer_service.normalize_zammad_entry(entry)) 
+            zammad_normalized_entries = await self.zammad_connector.fetch_time_entries(start_date, end_date)
+            log.debug(f"Zammad entries fetched: {len(zammad_normalized_entries)}")
+            
+            # Log each entry for debugging
+            for entry in zammad_normalized_entries:
+                log.debug(f"Zammad entry {entry.source_id}: ticket {entry.ticket_number}, {entry.time_minutes} min, activity {entry.activity_type_id}")
 
+            stats["zammad_fetched"] = len(zammad_normalized_entries)
             log.info(f"Fetched {len(zammad_normalized_entries)} normalized entries from Zammad.")
 
-            # 2. Fetch entries from Kimai
+            # 2. Fetch entries from Kimai (already normalized by connector)
             log.debug("Fetching Kimai entries...")
-            kimai_raw_entries = await self.kimai_connector.fetch_time_entries(start_date, end_date)
-            kimai_normalized_entries: List[TimeEntryNormalized] = []
-            for entry in kimai_raw_entries:
-                kimai_normalized_entries.append(self.normalizer_service.normalize_kimai_entry(entry))
+            kimai_normalized_entries = await self.kimai_connector.fetch_time_entries(start_date, end_date)
+            log.debug(f"Kimai entries fetched: {len(kimai_normalized_entries)}")
+            
+            # Log each entry for debugging
+            for entry in kimai_normalized_entries:
+                log.debug(f"Kimai entry {entry.source_id}: {entry.description or 'no desc'}, {entry.time_minutes} min")
 
+            stats["kimai_fetched"] = len(kimai_normalized_entries)
             log.info(f"Fetched {len(kimai_normalized_entries)} normalized entries from Kimai.")
 
             # 3. Reconcile entries
@@ -78,6 +90,20 @@ class SyncService:
                 kimai_normalized_entries
             )
             log.info(f"Reconciliation resulted in {len(reconciled_results)} entries to process.")
+            
+            # Count reconciliation types
+            for result in reconciled_results:
+                if result.reconciliation_status == ReconciliationStatus.MATCH:
+                    stats["reconciled_matches"] += 1
+                    log.debug(f"MATCH found: Zammad {result.zammad_entry.source_id} == Kimai {result.kimai_entry.source_id}")
+                elif result.reconciliation_status == ReconciliationStatus.MISSING_IN_KIMAI:
+                    stats["reconciled_missing_kimai"] += 1
+                    log.debug(f"MISSING_IN_KIMAI: Zammad {result.zammad_entry.source_id} needs creation")
+                elif result.reconciliation_status == ReconciliationStatus.CONFLICT:
+                    stats["reconciled_conflicts"] += 1
+                    log.debug(f"CONFLICT: Zammad {result.zammad_entry.source_id} vs Kimai {result.kimai_entry.source_id}")
+                elif result.reconciliation_status == ReconciliationStatus.MISSING_IN_ZAMMAD:
+                    log.debug(f"MISSING_IN_ZAMMAD: Kimai {result.kimai_entry.source_id} (ignoring for one-way sync)")
 
             # 4. Process reconciled results
             for reconciled_entry in reconciled_results:

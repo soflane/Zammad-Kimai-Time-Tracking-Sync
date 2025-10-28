@@ -1,5 +1,7 @@
 """Main FastAPI application."""
 
+import logging
+
 from datetime import datetime, timedelta
 from typing import Annotated
 
@@ -12,6 +14,15 @@ from app.config import settings
 from app import __version__
 from app.auth import create_access_token, authenticate_user, get_current_active_user
 from app.schemas.auth import Token, User
+
+# Configure root logger early
+if not logging.getLogger().hasHandlers():
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper()),
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
+logging.debug("Debug logging enabled at startup.")
 
 app = FastAPI(
     title="Zammad-Kimai Time Tracking Sync",
@@ -145,4 +156,4 @@ if __name__ == "__main__":
             scheduler.shutdown()
             log.info("Scheduler shut down.")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=8000, log_level=settings.log_level.lower())

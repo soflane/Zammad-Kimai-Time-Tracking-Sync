@@ -14,6 +14,11 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.debug:
+            self.log_level = "DEBUG"
+
     # Database
     database_url: str
 

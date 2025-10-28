@@ -24,13 +24,18 @@ class ZammadConnector(BaseConnector):
             "Authorization": f"Token token={self.api_token}",
             "Content-Type": "application/json"
         }
+        log.info(f"Zammad connector initialized with base URL: {self.base_url}")
 
     async def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         """Helper to make authenticated requests to Zammad API."""
         try:
+            log.debug(f"Zammad API {method} {path} with params/headers: {kwargs.get('params', 'none')}")
             response = await self.client.request(method, path, headers=self.headers, **kwargs)
+            log.debug(f"Zammad API response for {path}: {response.status_code}")
             response.raise_for_status()
-            return response.json()
+            json_data = response.json()
+            log.debug(f"Zammad API returned {len(json_data)} items for {path}")
+            return json_data
         except httpx.HTTPStatusError as e:
             log.error(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
             raise
@@ -40,25 +45,43 @@ class ZammadConnector(BaseConnector):
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
         """Fetches aggregated time entries from Zammad by ticket, date, and activity."""
+        log.info(f"Fetching Zammad time entries for date range: {start_date} to {end_date}")
         # Fetch all tickets updated/created in the date range
         tickets = await self.fetch_tickets_by_date(start_date, end_date)
+        log.info(f"Found {len(tickets)} tickets in date range")
+        
         normalized_entries = []
+        total_time_accountings = 0
         for ticket in tickets:
+            log.debug(f"Processing ticket {ticket['number']} (ID: {ticket['id']})")
+            
             if ticket.get("organization_id"):
                 org = await self.fetch_organization(ticket["organization_id"])
                 users = await self.fetch_users_by_org(ticket["organization_id"])
+                log.debug(f"Ticket {ticket['number']} belongs to org {org['name'] if org else 'none'}, users: {len(users)}")
             else:
                 org = None
                 users = []
+                log.debug(f"Ticket {ticket['number']} has no organization")
 
             # Fetch time accountings for this ticket
             time_accountings = await self.fetch_ticket_time_accountings(ticket["id"], start_date, end_date)
+            total_time_accountings += len(time_accountings)
+            log.debug(f"Ticket {ticket['number']} has {len(time_accountings)} time accountings in range")
             
             # Group by activity_type_id and entry_date, sum time
             grouped = {}
             for entry in time_accountings:
+                # DEBUG: Log raw entry to see actual field names and values
+                log.debug(f"Raw Zammad time accounting entry: {entry}")
+                
                 date = entry.get("created_at", "").split("T")[0]
                 activity_id = entry.get("type_id")
+                
+                # Try different field names for time/duration
+                time_value = entry.get("time_unit", entry.get("time", 0))
+                log.debug(f"Time accounting fields - type_id: {activity_id}, time_unit: {entry.get('time_unit')}, time: {entry.get('time')}, calculated: {time_value}")
+                
                 key = (ticket["id"], date, activity_id)
                 if key not in grouped:
                     grouped[key] = {
@@ -76,11 +99,12 @@ class ZammadConnector(BaseConnector):
                         "updated_at": entry.get("updated_at"),
                         "total_minutes": 0
                     }
-                grouped[key]["total_minutes"] += float(entry.get("time", 0))
+                grouped[key]["total_minutes"] += float(time_value)
 
             # Convert to normalized entries
             for key, data in grouped.items():
                 if data["total_minutes"] <= 0:
+                    log.debug(f"Skipping zero-duration entry for ticket {data['ticket_number']}, activity {data['activity_type_id']}, date {data['entry_date']}")
                     continue  # Skip zero-duration entries
 
                 user_email = data["user_emails"][0] if data["user_emails"] else "unknown@zammad.com"
@@ -104,7 +128,9 @@ class ZammadConnector(BaseConnector):
                     updated_at=data["updated_at"],
                     tags=[]
                 ))
+                log.debug(f"Created normalized entry: {data['ticket_number']} - {data['total_minutes']} min on {data['entry_date']}")
 
+        log.info(f"Total Zammad tickets processed: {len(tickets)}, total time accountings: {total_time_accountings}, normalized entries: {len(normalized_entries)}")
         return normalized_entries
 
     async def create_time_entry(self, time_entry: TimeEntryNormalized) -> TimeEntryNormalized:
@@ -226,6 +252,7 @@ class ZammadConnector(BaseConnector):
     async def fetch_tickets_by_date(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """Fetches tickets updated or created within the specified date range."""
         try:
+            log.debug(f"Searching Zammad tickets for date range: {start_date} to {end_date}")
             # Zammad search API to find tickets updated in the date range
             # Using search endpoint: /api/v1/tickets/search
             params = {
@@ -237,8 +264,10 @@ class ZammadConnector(BaseConnector):
             
             # Response should be a list of tickets or contain a 'tickets' key
             if isinstance(response_data, list):
+                log.info(f"Zammad search returned {len(response_data)} tickets")
                 return response_data
             elif isinstance(response_data, dict) and "tickets" in response_data:
+                log.info(f"Zammad search returned {len(response_data['tickets'])} tickets")
                 return response_data["tickets"]
             else:
                 log.warning(f"Unexpected response format from Zammad tickets search: {type(response_data)}")
@@ -279,8 +308,10 @@ class ZammadConnector(BaseConnector):
     async def fetch_ticket_time_accountings(self, ticket_id: int, start_date: str, end_date: str) -> List[Dict[str, Any]]:
         """Fetches time accounting entries for a specific ticket within the date range."""
         try:
+            log.debug(f"Fetching time accountings for ticket {ticket_id}")
             # Zammad API endpoint for ticket time accountings
             response_data = await self._request("GET", f"/api/v1/tickets/{ticket_id}/time_accountings")
+            log.debug(f"Received {len(response_data)} time accountings for ticket {ticket_id}")
             
             # Filter by date range
             if isinstance(response_data, list):
@@ -289,12 +320,14 @@ class ZammadConnector(BaseConnector):
                     if entry.get("created_at", "").split("T")[0] >= start_date
                     and entry.get("created_at", "").split("T")[0] <= end_date
                 ]
+                log.debug(f"Filtered to {len(filtered)} time accountings in date range {start_date} to {end_date}")
                 return filtered
             else:
                 log.warning(f"Unexpected response format from ticket time accountings: {type(response_data)}")
                 return []
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
+                log.debug(f"No time accountings found for ticket {ticket_id} (404)")
                 # Ticket has no time accountings
                 return []
             else:

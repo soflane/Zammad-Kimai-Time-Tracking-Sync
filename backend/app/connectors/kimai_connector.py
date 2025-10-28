@@ -163,6 +163,7 @@ class KimaiConnector(BaseConnector):
         Note: Kimai requires HTML5 local datetime format for begin/end params.
         The 'user' parameter is omitted to default to the current authenticated user.
         """
+        log.info(f"Fetching Kimai time entries for date range: {start_date} to {end_date}")
         # Convert dates to HTML5 local datetime format
         # Start of day for begin, end of day for end
         begin_datetime = f"{start_date}T00:00:00"
@@ -179,6 +180,7 @@ class KimaiConnector(BaseConnector):
         
         log.debug(f"Fetching Kimai timesheets with params: {params}")
         response_data = await self._request("GET", "/api/timesheets", params=params)
+        log.info(f"Received {len(response_data)} raw timesheets from Kimai")
         
         normalized_entries = []
         for entry in response_data:
@@ -187,7 +189,7 @@ class KimaiConnector(BaseConnector):
             end_datetime = datetime.fromisoformat(entry["end"])
             duration_minutes = (end_datetime - begin_datetime).total_seconds() / 60
 
-            normalized_entries.append(TimeEntryNormalized(
+            normalized = TimeEntryNormalized(
                 source_id=str(entry["id"]),
                 source="kimai",
                 ticket_number=None, # Kimai doesn't inherently have a ticket number field, might be in description/tags
@@ -201,7 +203,11 @@ class KimaiConnector(BaseConnector):
                 created_at=entry["createdAt"],
                 updated_at=entry["updatedAt"],
                 tags=entry.get("tags", [])
-            ))     
+            )
+            normalized_entries.append(normalized)
+            log.debug(f"Normalized Kimai entry {normalized.source_id}: {normalized.description or 'no desc'}, {duration_minutes} min on {normalized.entry_date}, activity {normalized.activity_type_id}")
+
+        log.info(f"Created {len(normalized_entries)} normalized Kimai time entries")
         return normalized_entries
 
 
