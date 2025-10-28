@@ -92,6 +92,18 @@ class KimaiConnector(BaseConnector):
             url = str(e.request.url)
             response_text = e.response.text
             
+            # Try to parse JSON error details for better diagnostics
+            error_details = None
+            try:
+                error_json = e.response.json()
+                error_details = error_json
+                log.error(f"Kimai API error JSON: {error_json}")
+            except Exception:
+                pass
+            
+            # Always log the raw response body
+            log.error(f"Kimai API raw response body: {response_text}")
+            
             # Provide helpful error messages based on status code
             if status in (301, 302, 307, 308):
                 # Redirect detected (shouldn't happen with follow_redirects=True, but just in case)
@@ -104,13 +116,22 @@ class KimaiConnector(BaseConnector):
                 raise ValueError(error_msg)
                 
             elif status == 400:
-                # Bad request - often due to invalid query parameters
-                error_msg = f"Kimai API bad request to {url}: {response_text}\n"
+                # Bad request - often due to invalid query parameters or form validation
+                error_msg = f"Kimai API bad request to {url}\n"
+                if error_details:
+                    error_msg += f"Error details: {error_details}\n"
+                error_msg += f"Raw response: {response_text}\n"
+                
                 if "/timesheets" in path and method == "GET":
                     error_msg += (
                         "Hint: Ensure 'begin' and 'end' parameters use HTML5 datetime format "
                         "(e.g., '2025-09-28T00:00:00'). Do not use 'user=current' - omit 'user' "
                         "parameter or use numeric user ID."
+                    )
+                elif "/timesheets" in path and method == "POST":
+                    error_msg += (
+                        "Hint: TimesheetEditForm requires 'begin' and 'end' (not 'duration'). "
+                        "Tags must be comma-separated string. Ensure project allows globalActivities."
                     )
                 log.error(error_msg)
                 raise ValueError(error_msg)
@@ -132,11 +153,14 @@ class KimaiConnector(BaseConnector):
                 
             elif status == 422:
                 # Unprocessable entity - validation errors
-                error_msg = f"Kimai validation error for {url}: {response_text}\n"
+                error_msg = f"Kimai validation error for {url}\n"
+                if error_details:
+                    error_msg += f"Error details: {error_details}\n"
+                error_msg += f"Raw response: {response_text}\n"
                 if "/timesheets" in path:
                     error_msg += (
                         "Hint: Check that all required fields are provided and properly formatted. "
-                        "Duration should be in seconds, begin/end in HTML5 datetime format."
+                        "Use 'end' instead of 'duration'. Begin/end must be HTML5 datetime format."
                     )
                 log.error(error_msg)
                 raise ValueError(error_msg)
@@ -189,6 +213,24 @@ class KimaiConnector(BaseConnector):
             end_datetime = datetime.fromisoformat(entry["end"])
             duration_minutes = (end_datetime - begin_datetime).total_seconds() / 60
 
+            # Handle both collection format (activity as int) and entity format (activity as object)
+            activity_data = entry["activity"]
+            if isinstance(activity_data, dict):
+                # Full entity format (from POST response)
+                activity_id = activity_data["id"]
+                activity_name = activity_data["name"]
+            else:
+                # Collection format (from GET response) - activity is just the ID
+                activity_id = activity_data
+                activity_name = None  # Name not available in collection format
+            
+            # Handle user field similarly
+            user_data = entry["user"]
+            if isinstance(user_data, dict):
+                user_email = user_data.get("email", user_data.get("username", "unknown"))
+            else:
+                user_email = None  # User ID only in collection format
+
             normalized = TimeEntryNormalized(
                 source_id=str(entry["id"]),
                 source="kimai",
@@ -196,9 +238,9 @@ class KimaiConnector(BaseConnector):
                 ticket_id=None,
                 description=entry.get("description", ""),
                 time_minutes=duration_minutes,
-                activity_type_id=entry["activity"]["id"],
-                activity_name=entry["activity"]["name"],
-                user_email=entry["user"]["email"],
+                activity_type_id=activity_id,
+                activity_name=activity_name,
+                user_email=user_email,
                 entry_date=begin_datetime.strftime("%Y-%m-%d"),
                 created_at=entry["createdAt"],
                 updated_at=entry["updatedAt"],
@@ -431,6 +473,43 @@ class KimaiConnector(BaseConnector):
         except httpx.HTTPStatusError as e:
             log.error(f"Error creating project: {e.response.status_code} - {e.response.text}")
             raise ValueError(f"Failed to create Kimai project: {e.response.text}")
+
+    async def get_project(self, project_id: int) -> Dict[str, Any]:
+        """
+        Fetches a project by ID from Kimai.
+        
+        Args:
+            project_id: The project ID to fetch
+            
+        Returns:
+            Project object with all details including globalActivities flag
+        """
+        try:
+            response_data = await self._request("GET", f"/api/projects/{project_id}")
+            log.debug(f"Fetched project {project_id}: globalActivities={response_data.get('globalActivities')}")
+            return response_data
+        except httpx.HTTPStatusError as e:
+            log.error(f"Error fetching project {project_id}: {e.response.status_code} - {e.response.text}")
+            raise ValueError(f"Failed to fetch Kimai project {project_id}: {e.response.text}")
+
+    async def patch_project(self, project_id: int, payload: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Updates an existing project in Kimai.
+        
+        Args:
+            project_id: The project ID to update
+            payload: Fields to update (e.g., {"globalActivities": true})
+            
+        Returns:
+            Updated project object
+        """
+        try:
+            response_data = await self._request("PATCH", f"/api/projects/{project_id}", json=payload)
+            log.info(f"Updated project {project_id}: {payload}")
+            return response_data
+        except httpx.HTTPStatusError as e:
+            log.error(f"Error updating project {project_id}: {e.response.status_code} - {e.response.text}")
+            raise ValueError(f"Failed to update Kimai project {project_id}: {e.response.text}")
 
     async def create_timesheet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """

@@ -326,6 +326,7 @@ class SyncService:
     async def _ensure_project(self, zammad_entry: TimeEntryNormalized, customer_id: int) -> Dict[str, Any]:
         """
         Ensures a project exists in Kimai for the Zammad ticket, creating if necessary.
+        Ensures the project allows global activities.
         Returns the project object.
         """
         # Use ticket number as search term
@@ -336,30 +337,39 @@ class SyncService:
         project = await self.kimai_connector.find_project(customer_id, ticket_number)
         if project:
             log.info(f"Found existing project: {project['name']} (ID: {project['id']})")
+            
+            # Check if project allows global activities
+            if project.get('globalActivities') is False:
+                log.warning(f"Project {project['id']} has globalActivities=false, enabling it now")
+                try:
+                    project = await self.kimai_connector.patch_project(
+                        project['id'], 
+                        {"globalActivities": True}
+                    )
+                    log.info(f"Enabled globalActivities for project {project['id']}")
+                except Exception as e:
+                    log.error(f"Failed to enable globalActivities for project {project['id']}: {e}")
+                    # Continue anyway - the timesheet creation might still work
+            
             return project
         
-        # Create new project
-        project_name = f"#{ticket_number}"
-        if hasattr(zammad_entry, 'ticket_title') and zammad_entry.ticket_title:
-            project_name += f" – {zammad_entry.ticket_title[:100]}"  # Limit length
-            log.debug(f"Project name with title: {project_name}")
-        else:
-            log.debug(f"Project name without title: {project_name}")
+        # Create new project with globalActivities enabled
+        project_name = f"Ticket-{ticket_number}"
+        log.debug(f"Project name: {project_name}")
         
+        # Include globalActivities in creation payload
         project_payload = {
             "name": project_name,
-            "customer": customer_id,
-            "number": f"ZAM-TICKET-{zammad_entry.ticket_id}",
-            "globalActivities": True,  # Allow global activities for easier mapping
+            "customer": int(customer_id),  # Ensure it's an integer
             "visible": True,
-            "billable": True
+            "globalActivities": True  # Enable global activities from the start
         }
         
-        log.debug(f"Project payload: {project_payload}")
+        log.info(f"Creating project with payload: {project_payload}")
         
         try:
             new_project = await self.kimai_connector.create_project(project_payload)
-            log.info(f"Successfully created project: {new_project['name']} (ID: {new_project['id']})")
+            log.info(f"Successfully created project: {new_project['name']} (ID: {new_project['id']}) with globalActivities=true")
             return new_project
         except Exception as e:
             log.error(f"Failed to create project '{project_name}': {str(e)}")
@@ -386,9 +396,11 @@ class SyncService:
             log.error(f"Invalid entry date format '{zammad_entry.entry_date}': {ve}")
             raise ValueError(f"Invalid entry date format: {zammad_entry.entry_date}")
         
-        # Calculate duration in seconds
+        # Calculate duration in seconds and end time
         duration_seconds = int(round(zammad_entry.time_minutes * 60))
+        end_dt = begin_dt + timedelta(seconds=duration_seconds)
         log.debug(f"Calculated duration: {zammad_entry.time_minutes} minutes = {duration_seconds} seconds")
+        log.debug(f"End time: {end_dt}")
         
         # Build description
         ticket_ref = zammad_entry.ticket_number or f"#{zammad_entry.ticket_id}"
@@ -419,11 +431,13 @@ class SyncService:
         
         log.debug(f"Timesheet tags: {tags}")
         
+        # Build timesheet payload using 'end' instead of 'duration'
+        # TimesheetEditForm requires begin and end (not duration)
         timesheet_payload = {
             "project": project_id,
             "activity": activity_id,
             "begin": begin_dt.strftime('%Y-%m-%dT%H:%M:%S'),  # HTML5 local datetime
-            "duration": duration_seconds,
+            "end": end_dt.strftime('%Y-%m-%dT%H:%M:%S'),  # HTML5 local datetime
             "description": description,
             "tags": ",".join(tags)  # Kimai expects comma-separated string
         }
