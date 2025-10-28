@@ -1,5 +1,6 @@
 from typing import Annotated, Optional
 from datetime import date, timedelta
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -15,6 +16,7 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import decrypt_data
 
+log = logging.getLogger(__name__)
 router = APIRouter()
 
 @router.post("/run", response_model=SyncResponse)

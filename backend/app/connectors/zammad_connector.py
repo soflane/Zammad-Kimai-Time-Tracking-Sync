@@ -216,3 +216,84 @@ class ZammadConnector(BaseConnector):
         except Exception as e:
             log.error(f"Unexpected error fetching Zammad activities: {e}")
             raise
+
+    async def fetch_tickets_by_date(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Fetches tickets updated or created within the specified date range."""
+        try:
+            # Zammad search API to find tickets updated in the date range
+            # Using search endpoint: /api/v1/tickets/search
+            params = {
+                "query": f"updated_at:[{start_date} TO {end_date}]",
+                "limit": 1000,  # Adjust based on expected volume
+                "expand": True
+            }
+            response_data = await self._request("GET", "/api/v1/tickets/search", params=params)
+            
+            # Response should be a list of tickets or contain a 'tickets' key
+            if isinstance(response_data, list):
+                return response_data
+            elif isinstance(response_data, dict) and "tickets" in response_data:
+                return response_data["tickets"]
+            else:
+                log.warning(f"Unexpected response format from Zammad tickets search: {type(response_data)}")
+                return []
+        except Exception as e:
+            log.error(f"Error fetching tickets by date: {e}")
+            return []
+
+    async def fetch_organization(self, org_id: int) -> Optional[Dict[str, Any]]:
+        """Fetches organization details by ID."""
+        try:
+            response_data = await self._request("GET", f"/api/v1/organizations/{org_id}")
+            return response_data
+        except Exception as e:
+            log.error(f"Error fetching organization {org_id}: {e}")
+            return None
+
+    async def fetch_users_by_org(self, org_id: int) -> List[Dict[str, Any]]:
+        """Fetches users belonging to an organization."""
+        try:
+            # Zammad API to search users by organization_id
+            params = {
+                "query": f"organization_id:{org_id}",
+                "limit": 100
+            }
+            response_data = await self._request("GET", "/api/v1/users/search", params=params)
+            
+            if isinstance(response_data, list):
+                return response_data
+            elif isinstance(response_data, dict) and "users" in response_data:
+                return response_data["users"]
+            else:
+                return []
+        except Exception as e:
+            log.error(f"Error fetching users for organization {org_id}: {e}")
+            return []
+
+    async def fetch_ticket_time_accountings(self, ticket_id: int, start_date: str, end_date: str) -> List[Dict[str, Any]]:
+        """Fetches time accounting entries for a specific ticket within the date range."""
+        try:
+            # Zammad API endpoint for ticket time accountings
+            response_data = await self._request("GET", f"/api/v1/tickets/{ticket_id}/time_accountings")
+            
+            # Filter by date range
+            if isinstance(response_data, list):
+                filtered = [
+                    entry for entry in response_data
+                    if entry.get("created_at", "").split("T")[0] >= start_date
+                    and entry.get("created_at", "").split("T")[0] <= end_date
+                ]
+                return filtered
+            else:
+                log.warning(f"Unexpected response format from ticket time accountings: {type(response_data)}")
+                return []
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                # Ticket has no time accountings
+                return []
+            else:
+                log.error(f"Error fetching time accountings for ticket {ticket_id}: {e}")
+                return []
+        except Exception as e:
+            log.error(f"Error fetching time accountings for ticket {ticket_id}: {e}")
+            return []

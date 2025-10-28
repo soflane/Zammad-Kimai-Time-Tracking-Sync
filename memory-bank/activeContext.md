@@ -4,6 +4,45 @@
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented.
 
 ## Recent Actions (Most Recent First)
+21. **Kimai Connector and Sync Flow Enhancements (October 2025)**:
+    - **Extended Connector Configuration Schema**:
+      - Added `KimaiConnectorConfig` model in `backend/app/schemas/connector.py` with fields: `use_global_activities`, `default_project_id`, `default_country`, `default_currency`, `default_timezone`
+      - Updated frontend types (`frontend/src/types/index.ts`) with `KimaiConnectorConfig` interface
+      - Updated Connectors UI (`frontend/src/pages/Connectors.tsx`) with Kimai configuration section including toggles and inputs for all settings
+    - **Fixed Critical Issues**:
+      - Removed double decryption in `KimaiConnector.__init__()` (token already decrypted by `get_connector_instance`)
+      - Fixed config passing in `get_connector_instance()` to properly nest settings under "settings" key instead of spreading at root
+      - Fixed sync endpoint to pass connector settings properly to connector instances
+    - **Implemented Robust Kimai Activities Listing**:
+      - Added `list_activities()` method with config-aware fallbacks:
+        - If `use_global_activities=true` → GET `/api/activities?globals=1&visible=3`
+        - Elif `default_project_id` set → GET `/api/activities?project={id}&visible=3`
+        - Else → GET `/api/activities?visible=3`
+      - Added comprehensive error handling (401→invalid token, 403→permissions, 404→project not found)
+      - Returns normalized activities with `id`, `name`, `project_id`, `is_global`
+    - **Added Customer/Project Upsert Helpers** (`backend/app/connectors/kimai_connector.py`):
+      - `find_customer(term)`: Search for existing customer by name
+      - `create_customer(payload)`: Create customer with country/currency/timezone
+      - `find_project(customer_id, term)`: Search for project by customer and ticket number
+      - `create_project(payload)`: Create project with `globalActivities: true`
+      - `create_timesheet(payload)`: Create timesheet with proper duration/tags
+    - **Integrated Full Upsert Flow** (`backend/app/services/sync_service.py`):
+      - Added helper methods: `_determine_customer_name()`, `_ensure_customer()`, `_ensure_project()`, `_create_timesheet()`
+      - Customer determination: org name → user email → fallback to "Zammad User {ticket_id}"
+      - Customer creation: Uses external ID format `ZAM-ORG-{id}` or `ZAM-USER-{id}`
+      - Project creation: Format `#{ticket_number} – {title}` with external ID `ZAM-TICKET-{id}`
+      - Timesheet creation: HTML5 datetime format, duration in seconds, tags: source, ticket, entry ID, billing period
+    - **Enhanced Logging and Error Handling**:
+      - Added comprehensive debug/info/error logging throughout sync service and all helper methods
+      - Added stack trace logging with `traceback.format_exc()` for all exceptions
+      - Sync endpoint now handles ValueError→HTTP 400, unexpected→HTTP 500 with detailed messages
+      - Every step logged: connector instantiation, fetching, reconciliation, customer/project/timesheet creation
+      - Payload logging (sanitized) for debugging API calls
+    - **Updated Mappings UI** (`frontend/src/pages/Mappings.tsx`):
+      - Added config-aware empty state messages for Kimai activities
+      - Helpful prompt when `use_global_activities=false` and no `default_project_id` set
+    - **Testing**: All Python syntax validated, frontend build successful (1753 modules)
+
 18. **Project Cleanup for Kimai Connector Issues**:
     - Stashed problematic modifications from unfinished Kimai fix attempts to revert to stable commit.
     - Cleaned backend dependencies with pip install --no-cache-dir (already up-to-date).
