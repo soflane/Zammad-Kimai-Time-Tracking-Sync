@@ -38,13 +38,31 @@ async def run_sync(
             detail="Active Zammad and Kimai connectors must be configured and active."
         )
     
+    import traceback
+
+    log.info(f"Sync request received for {start_d} to {end_d}")
+    
     # Decrypt tokens
     zammad_token = decrypt_data(zammad_conn.api_token)
     kimai_token = decrypt_data(kimai_conn.api_token)
     
-    # Instantiate services
-    zammad_instance = ZammadConnector({"base_url": str(zammad_conn.base_url), "api_token": zammad_token})
-    kimai_instance = KimaiConnector({"base_url": str(kimai_conn.base_url), "api_token": kimai_token})
+    # Instantiate connectors properly with settings (same pattern as get_connector_instance)
+    log.debug("Instantiating Zammad connector")
+    zammad_config = {
+        "base_url": str(zammad_conn.base_url),
+        "api_token": zammad_token,
+        "settings": zammad_conn.settings or {}
+    }
+    zammad_instance = ZammadConnector(zammad_config)
+    
+    log.debug("Instantiating Kimai connector")
+    kimai_config = {
+        "base_url": str(kimai_conn.base_url),
+        "api_token": kimai_token,
+        "settings": kimai_conn.settings or {}
+    }
+    kimai_instance = KimaiConnector(kimai_config)
+    
     normalizer = NormalizerService()
     reconciler = ReconciliationService()
     
@@ -57,7 +75,9 @@ async def run_sync(
     )
     
     try:
+        log.info(f"Starting sync process for period {start_d} to {end_d}")
         stats = await sync_service.sync_time_entries(start_d, end_d)
+        log.info(f"Sync completed successfully: processed={stats['processed']}, created={stats['created']}, conflicts={stats['conflicts']}")
         return SyncResponse(
             status="success",
             message=f"Sync completed for {start_d} to {end_d}",
@@ -67,8 +87,20 @@ async def run_sync(
             num_created=stats["created"],
             num_conflicts=stats["conflicts"]
         )
+    except ValueError as ve:
+        log.error(f"ValueError during sync: {str(ve)}")
+        log.error(f"Stack trace: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, 
+            detail=f"Sync validation error: {str(ve)}"
+        )
     except Exception as e:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Sync failed: {str(e)}")
+        log.error(f"Unexpected error during sync: {str(e)}")
+        log.error(f"Stack trace: {traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
+            detail=f"Sync failed: {str(e)}"
+        )
 
 @router.get("/runs", response_model=list[dict])  # Assuming SyncRun model for future
 async def get_sync_runs(
