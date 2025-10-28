@@ -16,7 +16,7 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        if self.debug:
+        if self.debug and self.log_level.upper() != "TRACE":
             self.log_level = "DEBUG"
 
     # Database
