@@ -78,7 +78,7 @@ class SyncService:
             
             # Log each entry for debugging
             for entry in kimai_normalized_entries:
-                log.debug(f"Kimai entry {entry.source_id}: {entry.description or 'no desc'}, {entry.time_minutes} min")
+                log.trace(f"Kimai entry {entry.source_id}: {entry.description or 'no desc'}, {entry.time_minutes} min")
 
             stats["kimai_fetched"] = len(kimai_normalized_entries)
             log.info(f"Fetched {len(kimai_normalized_entries)} normalized entries from Kimai.")

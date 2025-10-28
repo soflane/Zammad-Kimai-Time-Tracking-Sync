@@ -15,14 +15,28 @@ from app import __version__
 from app.auth import create_access_token, authenticate_user, get_current_active_user
 from app.schemas.auth import Token, User
 
+# Custom TRACE level
+logging.TRACE = 5
+logging.addLevelName(logging.TRACE, "TRACE")
+
+# Add trace method to standard Logger class for all instances
+def trace_method(self, msg, *args, **kwargs):
+    if self.isEnabledFor(logging.TRACE):
+        self._log(logging.TRACE, msg, args, **kwargs)
+
+logging.Logger.trace = trace_method
+
 # Configure root logger early
+log_level_str = settings.log_level.upper()
+log_level = logging.TRACE if log_level_str == "TRACE" else getattr(logging, log_level_str, logging.INFO)
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper()),
+        level=log_level,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
 
-logging.debug("Debug logging enabled at startup.")
+root = logging.getLogger()
+root.trace("Trace logging enabled at startup (verbose details).") if log_level_str == "TRACE" else root.debug("Debug logging enabled at startup.")
 
 app = FastAPI(
     title="Zammad-Kimai Time Tracking Sync",

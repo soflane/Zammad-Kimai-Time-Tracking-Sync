@@ -81,9 +81,9 @@ class KimaiConnector(BaseConnector):
             path = f"/{path}"
         
         try:
-            log.debug(f"Kimai API {method} {self.base_url}{path}")
+            log.trace(f"Kimai API {method} {self.base_url}{path}")
             response = await self.client.request(method, path, headers=self.headers, **kwargs)
-            log.debug(f"Kimai API response: {response.status_code}")
+            log.trace(f"Kimai API response: {response.status_code}")
             response.raise_for_status()
             return response.json()
             

@@ -29,12 +29,12 @@ class ZammadConnector(BaseConnector):
     async def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         """Helper to make authenticated requests to Zammad API."""
         try:
-            log.debug(f"Zammad API {method} {path} with params/headers: {kwargs.get('params', 'none')}")
+            log.trace(f"Zammad API {method} {path} with params/headers: {kwargs.get('params', 'none')}")
             response = await self.client.request(method, path, headers=self.headers, **kwargs)
-            log.debug(f"Zammad API response for {path}: {response.status_code}")
+            log.trace(f"Zammad API response for {path}: {response.status_code}")
             response.raise_for_status()
             json_data = response.json()
-            log.debug(f"Zammad API returned {len(json_data)} items for {path}")
+            log.trace(f"Zammad API returned {len(json_data)} items for {path}")
             return json_data
         except httpx.HTTPStatusError as e:
             log.error(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
@@ -104,7 +104,7 @@ class ZammadConnector(BaseConnector):
             # Convert to normalized entries
             for key, data in grouped.items():
                 if data["total_minutes"] <= 0:
-                    log.debug(f"Skipping zero-duration entry for ticket {data['ticket_number']}, activity {data['activity_type_id']}, date {data['entry_date']}")
+                    log.trace(f"Skipping zero-duration entry for ticket {data['ticket_number']}, activity {data['activity_type_id']}, date {data['entry_date']}")
                     continue  # Skip zero-duration entries
 
                 user_email = data["user_emails"][0] if data["user_emails"] else "unknown@zammad.com"
@@ -320,14 +320,14 @@ class ZammadConnector(BaseConnector):
                     if entry.get("created_at", "").split("T")[0] >= start_date
                     and entry.get("created_at", "").split("T")[0] <= end_date
                 ]
-                log.debug(f"Filtered to {len(filtered)} time accountings in date range {start_date} to {end_date}")
+                log.trace(f"Filtered to {len(filtered)} time accountings in date range {start_date} to {end_date}")
                 return filtered
             else:
                 log.warning(f"Unexpected response format from ticket time accountings: {type(response_data)}")
                 return []
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
-                log.debug(f"No time accountings found for ticket {ticket_id} (404)")
+                log.trace(f"No time accountings found for ticket {ticket_id} (404)")
                 # Ticket has no time accountings
                 return []
             else:
