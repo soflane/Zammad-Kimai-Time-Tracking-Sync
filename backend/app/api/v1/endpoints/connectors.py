@@ -50,7 +50,7 @@ async def get_connector_instance(db_conn: DBConnector) -> BaseConnector:
     config = {
         "base_url": base_url,
         "api_token": decrypted_token,
-        **(db_conn.settings or {})
+        "settings": db_conn.settings or {}
     }
     return connector_class(config)
 
@@ -195,6 +195,17 @@ async def get_connector_activities(
         connector_instance = await get_connector_instance(db_connector)
         activities_data = await connector_instance.fetch_activities()
         return [Activity(**activity) for activity in activities_data]
-    except Exception as e:
+    except ValueError as e:
+        # Specific errors from connector (e.g., invalid token, permissions)
         log.error(f"Error fetching activities for connector {connector_id}: {str(e)}")
-        return []
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+    except Exception as e:
+        # Unexpected errors
+        log.error(f"Unexpected error fetching activities for connector {connector_id}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to fetch activities: {str(e)}"
+        )

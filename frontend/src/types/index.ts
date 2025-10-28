@@ -19,6 +19,14 @@ export interface LoginResponse {
   token_type: string
 }
 
+export interface KimaiConnectorConfig {
+  use_global_activities?: boolean
+  default_project_id?: number | null
+  default_country?: string
+  default_currency?: string
+  default_timezone?: string
+}
+
 export interface Connector {
   id: number
   type: 'zammad' | 'kimai'
@@ -26,7 +34,7 @@ export interface Connector {
   base_url: string
   api_token: string
   is_active: boolean
-  config?: Record<string, any>
+  settings?: KimaiConnectorConfig | Record<string, any>
   created_at: string
   updated_at: string
 }
@@ -37,7 +45,7 @@ export interface ConnectorCreate {
   base_url: string
   api_token: string
   is_active?: boolean
-  config?: Record<string, any>
+  settings?: KimaiConnectorConfig | Record<string, any>
 }
 
 export interface ConnectorUpdate {
@@ -45,7 +53,7 @@ export interface ConnectorUpdate {
   base_url?: string
   api_token?: string
   is_active?: boolean
-  config?: Record<string, any>
+  settings?: KimaiConnectorConfig | Record<string, any>
 }
 
 export interface ActivityMapping {

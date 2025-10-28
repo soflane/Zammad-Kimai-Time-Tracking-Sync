@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useToast } from '@/hooks/use-toast'
 import { connectorService } from '@/services/api.service'
-import type { Connector, ConnectorCreate, ConnectorUpdate } from '@/types'
+import type { Connector, ConnectorCreate, ConnectorUpdate, KimaiConnectorConfig } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -15,6 +15,7 @@ interface ConnectorFormData {
   base_url: string
   api_token: string
   is_active: boolean
+  settings?: KimaiConnectorConfig
 }
 
 export default function Connectors() {
@@ -69,7 +70,14 @@ export default function Connectors() {
       name: '',
       base_url: '',
       api_token: '',
-      is_active: true
+      is_active: true,
+      settings: {
+        use_global_activities: true,
+        default_project_id: null,
+        default_country: 'BE',
+        default_currency: 'EUR',
+        default_timezone: 'Europe/Brussels'
+      }
     })
   }
 
@@ -80,7 +88,14 @@ export default function Connectors() {
         name: connector.name,
         base_url: connector.base_url,
         api_token: '', // Don't pre-fill token for security
-        is_active: connector.is_active
+        is_active: connector.is_active,
+        settings: connector.type === 'kimai' ? (connector.settings as KimaiConnectorConfig || {
+          use_global_activities: true,
+          default_project_id: null,
+          default_country: 'BE',
+          default_currency: 'EUR',
+          default_timezone: 'Europe/Brussels'
+        }) : undefined
       })
       setEditing(connector.id)
     } else {
@@ -135,6 +150,10 @@ export default function Connectors() {
         if (formData.api_token) {
           updateData.api_token = formData.api_token
         }
+        // Include settings for Kimai connectors
+        if (formData.type === 'kimai' && formData.settings) {
+          updateData.settings = formData.settings
+        }
         await connectorService.update(editing, updateData)
         toast({
           title: "Connector updated",
@@ -148,6 +167,10 @@ export default function Connectors() {
           base_url: formData.base_url,
           api_token: formData.api_token,
           is_active: formData.is_active
+        }
+        // Include settings for Kimai connectors
+        if (formData.type === 'kimai' && formData.settings) {
+          createData.settings = formData.settings
         }
         await connectorService.create(createData)
         toast({
@@ -368,6 +391,76 @@ export default function Connectors() {
                 />
                 <label htmlFor="active" className="text-sm font-medium">Active</label>
               </div>
+
+              {formData.type === 'kimai' && (
+                <>
+                  <div className="border-t pt-4">
+                    <h3 className="text-sm font-semibold mb-3">Kimai Configuration</h3>
+                    <div className="space-y-3">
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="checkbox" 
+                          id="use_global_activities" 
+                          checked={formData.settings?.use_global_activities ?? true}
+                          onChange={(e) => setFormData({ 
+                            ...formData, 
+                            settings: { ...formData.settings!, use_global_activities: e.target.checked }
+                          })}
+                          className="h-4 w-4"
+                        />
+                        <label htmlFor="use_global_activities" className="text-sm">Use Global Activities</label>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Default Project ID (optional)</label>
+                        <Input 
+                          type="number" 
+                          placeholder="e.g., 123" 
+                          value={formData.settings?.default_project_id ?? ''}
+                          onChange={(e) => setFormData({ 
+                            ...formData, 
+                            settings: { ...formData.settings!, default_project_id: e.target.value ? parseInt(e.target.value) : null }
+                          })}
+                        />
+                        <p className="text-xs text-muted-foreground mt-1">Used when global activities is disabled</p>
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Default Country</label>
+                        <Input 
+                          placeholder="BE" 
+                          value={formData.settings?.default_country ?? 'BE'}
+                          onChange={(e) => setFormData({ 
+                            ...formData, 
+                            settings: { ...formData.settings!, default_country: e.target.value }
+                          })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Default Currency</label>
+                        <Input 
+                          placeholder="EUR" 
+                          value={formData.settings?.default_currency ?? 'EUR'}
+                          onChange={(e) => setFormData({ 
+                            ...formData, 
+                            settings: { ...formData.settings!, default_currency: e.target.value }
+                          })}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium mb-2 block">Default Timezone</label>
+                        <Input 
+                          placeholder="Europe/Brussels" 
+                          value={formData.settings?.default_timezone ?? 'Europe/Brussels'}
+                          onChange={(e) => setFormData({ 
+                            ...formData, 
+                            settings: { ...formData.settings!, default_timezone: e.target.value }
+                          })}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
               <div className="flex justify-end space-x-2 pt-4">
                 <Button 
                   variant="outline" 

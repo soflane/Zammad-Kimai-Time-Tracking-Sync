@@ -232,7 +232,23 @@ export default function Mappings() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Unable to Load Activities</AlertTitle>
           <AlertDescription>
-            {zammadActivities.length === 0 ? 'Zammad: ' : ''}No activities could be loaded from the Zammad connector. Please validate your connector configuration and ensure the API token has the necessary permissions.{kimaiActivities.length === 0 ? ' Kimai: No activities could be loaded from the Kimai connector.' : ''}
+            {zammadActivities.length === 0 && (
+              <div className="mb-2">
+                <strong>Zammad:</strong> No activities could be loaded. Please validate your connector configuration and ensure the API token has the necessary permissions.
+              </div>
+            )}
+            {kimaiActivities.length === 0 && (
+              <div>
+                <strong>Kimai:</strong> No activities could be loaded. {(() => {
+                  const kimaiConnector = connectors.find(c => c.type === 'kimai' && c.is_active);
+                  const settings = kimaiConnector?.settings as any;
+                  if (settings && !settings.use_global_activities && !settings.default_project_id) {
+                    return 'Please configure either "Use Global Activities" or set a "Default Project ID" in the Kimai connector settings.';
+                  }
+                  return 'Please validate your connector configuration and ensure the API token has the necessary permissions.';
+                })()}
+              </div>
+            )}
           </AlertDescription>
         </Alert>
       )}

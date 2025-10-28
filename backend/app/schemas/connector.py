@@ -2,6 +2,14 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 from pydantic import BaseModel, HttpUrl
 
+class KimaiConnectorConfig(BaseModel):
+    """Kimai-specific configuration options"""
+    use_global_activities: bool = True
+    default_project_id: Optional[int] = None
+    default_country: str = "BE"
+    default_currency: str = "EUR"
+    default_timezone: str = "Europe/Brussels"
+
 class ConnectorBase(BaseModel):
     name: str
     type: str # e.g., "zammad", "kimai"
