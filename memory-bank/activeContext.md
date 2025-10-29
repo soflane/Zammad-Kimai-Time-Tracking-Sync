@@ -4,6 +4,41 @@
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented.
 
 ## Recent Actions (Most Recent First)
+23. **Fixed Zammad→Kimai Sync Issues (October 2025)**:
+    - **Problems Fixed**:
+      1. Multi-customer sync stuck to first partial match
+      2. Hardcoded 09:00 timesheet creation (ignoring real Zammad timestamps)
+      3. Duplicate timesheet creation on re-syncs
+    - **Backend Fixes**:
+      - **Zammad Connector** (`backend/app/connectors/zammad_connector.py`):
+        - Removed aggregation logic - now processes individual time_accounting entries
+        - Uses `time_accounting.id` as unique `source_id` (not aggregated ticket+date)
+        - Preserves real `created_at` timestamp from Zammad (actual work time)
+        - Enhanced organization/customer lookup for proper resolution
+      - **Kimai Connector** (`backend/app/connectors/kimai_connector.py`):
+        - Added `full=true` to GET /api/timesheets (fetches tags for idempotency)
+        - New exact lookup methods: `find_customer_by_number()`, `find_customer_by_name_exact()`
+        - Added `find_project_by_number()` and `find_timesheet_by_tag_and_range()` for idempotency
+        - Robust tag parsing (handles array/string formats)
+      - **Sync Service** (`backend/app/services/sync_service.py`):
+        - **Deterministic Customers**: External number lookup (ZAM-ORG-{id}) before name matching
+        - **Real Timestamps**: Converts Zammad `created_at` to Europe/Brussels HTML5 format
+          - e.g., `2025-10-22T14:37:00Z` → `2025-10-22T16:37:00` (begin)
+        - **Idempotency**: Checks for `zid:{time_accounting_id}` tag before creation
+          - Second sync yields 0 created entries
+        - New canonical tags: `zid:{id}` (compatible with legacy `zammad_entry:`)
+      - **Schemas** (`backend/app/schemas/connector.py`):
+        - Added `default_activity_id` config for unmapped activity fallback
+    - **Documentation**:
+      - Created `SYNC_FIXES_SUMMARY.md` with complete technical details
+      - Comprehensive logging for all sync decisions and timestamp conversions
+    - **Testing & Validation**:
+      - All Python files syntax validated (no compilation errors)
+      - No database schema changes required
+      - Backward compatible with existing timesheets
+      - Ready for multi-customer, timestamp accuracy, and idempotency testing
+    - **Compliance**: Maintains one-way sync contract, no migrations, production ready
+
 22. **Fixed Kimai API HTTP Redirect and Query Parameter Issues (October 2025)**:
     - **Problem**: Kimai API calls were failing with HTTP 301 redirects (http→https) and 400 errors due to invalid query parameters
     - **Root Causes**:

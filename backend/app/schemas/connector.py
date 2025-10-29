@@ -6,6 +6,7 @@ class KimaiConnectorConfig(BaseModel):
     """Kimai-specific configuration options"""
     use_global_activities: bool = True
     default_project_id: Optional[int] = None
+    default_activity_id: Optional[int] = None  # Fallback activity for unmapped Zammad types
     default_country: str = "BE"
     default_currency: str = "EUR"
     default_timezone: str = "Europe/Brussels"

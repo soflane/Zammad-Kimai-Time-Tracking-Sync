@@ -1,5 +1,6 @@
 from typing import List, Dict, Any
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session # Required for database interaction
 
@@ -270,33 +271,39 @@ class SyncService:
 
     async def _ensure_customer(self, zammad_entry: TimeEntryNormalized, customer_name: str) -> Dict[str, Any]:
         """
-        Ensures a customer exists in Kimai, creating if necessary.
+        Ensures a customer exists in Kimai using deterministic external number lookup.
         Returns the customer object.
         """
-        log.debug(f"Searching for existing customer: '{customer_name}' (Zammad entry: {zammad_entry.source_id})")
+        # Determine external number (stable key)
+        if hasattr(zammad_entry, 'org_id') and zammad_entry.org_id:
+            external_number = f"ZAM-ORG-{zammad_entry.org_id}"
+        else:
+            # Fallback to user-based number if no organization
+            external_number = f"ZAM-USER-{zammad_entry.ticket_id}"
         
-        # Try to find existing customer
-        customer = await self.kimai_connector.find_customer(customer_name)
+        log.debug(f"Looking up customer by external number: {external_number}")
+        
+        # Try exact match by number first (most deterministic)
+        customer = await self.kimai_connector.find_customer_by_number(external_number)
         if customer:
-            log.info(f"Found existing customer: {customer['name']} (ID: {customer['id']})")
+            log.info(f"Customer found by number {external_number}: {customer['name']} (ID: {customer['id']})")
             return customer
         
-        log.info(f"Creating new customer: '{customer_name}' for Zammad entry {zammad_entry.source_id}")
+        # Fallback: try exact name match
+        log.debug(f"Customer not found by number, trying exact name match: '{customer_name}'")
+        customer = await self.kimai_connector.find_customer_by_name_exact(customer_name)
+        if customer:
+            log.info(f"Customer found by exact name '{customer_name}': ID {customer['id']}")
+            return customer
         
-        # Create new customer
+        # Create new customer with external number
+        log.info(f"Creating new customer: '{customer_name}' with number {external_number}")
+        
         settings = self.kimai_connector.config.get("settings", {})
-        
-        # Determine external ID
-        if hasattr(zammad_entry, 'org_id') and zammad_entry.org_id:
-            external_id = f"ZAM-ORG-{zammad_entry.org_id}"
-            log.debug(f"Using org external ID: {external_id}")
-        else:
-            external_id = f"ZAM-USER-{zammad_entry.ticket_id}"
-            log.debug(f"Using user external ID: {external_id}")
         
         customer_payload = {
             "name": customer_name,
-            "number": external_id,
+            "number": external_number,
             "country": settings.get("default_country", "BE"),
             "currency": settings.get("default_currency", "EUR"),
             "timezone": settings.get("default_timezone", "Europe/Brussels"),
@@ -307,16 +314,14 @@ class SyncService:
         # Add email if available
         if hasattr(zammad_entry, 'user_email') and zammad_entry.user_email:
             customer_payload["email"] = zammad_entry.user_email
-            log.debug(f"Added email to customer payload: {zammad_entry.user_email}")
         elif hasattr(zammad_entry, 'user_emails') and zammad_entry.user_emails and len(zammad_entry.user_emails) > 0:
             customer_payload["email"] = zammad_entry.user_emails[0]
-            log.debug(f"Added first user email to customer payload: {zammad_entry.user_emails[0]}")
         
         log.debug(f"Customer payload: {customer_payload}")
         
         try:
             new_customer = await self.kimai_connector.create_customer(customer_payload)
-            log.info(f"Successfully created customer: {new_customer['name']} (ID: {new_customer['id']})")
+            log.info(f"Created customer: {new_customer['name']} (ID: {new_customer['id']}, number: {external_number})")
             return new_customer
         except Exception as e:
             log.error(f"Failed to create customer '{customer_name}': {str(e)}")
@@ -376,6 +381,25 @@ class SyncService:
             log.error(f"Stack trace: {traceback.format_exc()}")
             raise ValueError(f"Failed to create Kimai project '{project_name}': {str(e)}")
 
+    def _to_local_html5(self, iso_timestamp: str, timezone: str = "Europe/Brussels") -> str:
+        """
+        Convert ISO-8601 timestamp to HTML5 local datetime in specified timezone.
+        Returns format: YYYY-MM-DDTHH:MM:SS (no timezone suffix).
+        """
+        try:
+            # Parse ISO timestamp (handles both Z and +00:00 formats)
+            dt = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
+            
+            # Convert to target timezone
+            tz = ZoneInfo(timezone)
+            dt_local = dt.astimezone(tz)
+            
+            # Return as HTML5 local datetime (no timezone)
+            return dt_local.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception as e:
+            log.error(f"Failed to convert timestamp '{iso_timestamp}' to local HTML5: {e}")
+            raise
+
     async def _create_timesheet(
         self, 
         zammad_entry: TimeEntryNormalized, 
@@ -383,70 +407,94 @@ class SyncService:
         activity_id: int
     ) -> Dict[str, Any]:
         """
-        Creates a timesheet in Kimai with proper formatting.
+        Creates a timesheet in Kimai with proper timestamp handling and idempotency.
         """
         log.debug(f"Creating timesheet for Zammad entry {zammad_entry.source_id}, project {project_id}, activity {activity_id}")
         
-        # Parse entry date and add default time (09:00)
-        try:
-            entry_dt = datetime.strptime(zammad_entry.entry_date, '%Y-%m-%d')
-            begin_dt = entry_dt.replace(hour=9, minute=0, second=0)
-            log.debug(f"Parsed entry date {zammad_entry.entry_date} to begin time: {begin_dt}")
-        except ValueError as ve:
-            log.error(f"Invalid entry date format '{zammad_entry.entry_date}': {ve}")
-            raise ValueError(f"Invalid entry date format: {zammad_entry.entry_date}")
+        # Get timezone from connector settings
+        settings = self.kimai_connector.config.get("settings", {})
+        timezone = settings.get("default_timezone", "Europe/Brussels")
         
-        # Calculate duration in seconds and end time
+        # Use real timestamp from Zammad's created_at
+        if zammad_entry.created_at:
+            try:
+                begin_local = self._to_local_html5(zammad_entry.created_at, timezone)
+                log.trace(f"Converted Zammad created_at {zammad_entry.created_at} to local begin: {begin_local}")
+            except Exception as e:
+                log.warning(f"Failed to parse created_at '{zammad_entry.created_at}', falling back to 09:00: {e}")
+                # Fallback to date + 09:00
+                entry_dt = datetime.strptime(zammad_entry.entry_date, '%Y-%m-%d')
+                begin_local = entry_dt.replace(hour=9, minute=0, second=0).strftime("%Y-%m-%dT%H:%M:%S")
+        else:
+            # Fallback if no created_at (should not happen with new Zammad connector)
+            log.warning(f"No created_at timestamp for Zammad entry {zammad_entry.source_id}, using 09:00 fallback")
+            entry_dt = datetime.strptime(zammad_entry.entry_date, '%Y-%m-%d')
+            begin_local = entry_dt.replace(hour=9, minute=0, second=0).strftime("%Y-%m-%dT%H:%M:%S")
+        
+        # Calculate end time
+        begin_dt = datetime.fromisoformat(begin_local)
         duration_seconds = int(round(zammad_entry.time_minutes * 60))
         end_dt = begin_dt + timedelta(seconds=duration_seconds)
-        log.debug(f"Calculated duration: {zammad_entry.time_minutes} minutes = {duration_seconds} seconds")
-        log.debug(f"End time: {end_dt}")
+        end_local = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
         
-        # Build description
+        log.trace(f"Timesheet times: begin={begin_local}, end={end_local}, duration={zammad_entry.time_minutes} min")
+        
+        # Build stable idempotency tag (canonical source ID)
+        zid_tag = f"zid:{zammad_entry.source_id}"
+        
+        # Check for existing timesheet with this tag (IDEMPOTENCY)
+        day_begin = begin_local.split('T')[0] + "T00:00:00"
+        day_end = begin_local.split('T')[0] + "T23:59:59"
+        
+        log.debug(f"Checking for existing timesheet with tag '{zid_tag}' in range {day_begin} to {day_end}")
+        existing = await self.kimai_connector.find_timesheet_by_tag_and_range(zid_tag, day_begin, day_end)
+        
+        if existing:
+            log.info(f"Timesheet already exists for Zammad entry {zammad_entry.source_id}: Kimai ID {existing.get('id')} (skipping create)")
+            return existing
+        
+        # Build description with stable template
         ticket_ref = zammad_entry.ticket_number or f"#{zammad_entry.ticket_id}"
-        description = f"Zammad {ticket_ref}"
+        description = f"Ticket-{ticket_ref}"  # Stable first line
+        
+        # Add additional details on new lines
         if hasattr(zammad_entry, 'ticket_title') and zammad_entry.ticket_title:
-            description += f": {zammad_entry.ticket_title}"
+            description += f"\n{zammad_entry.ticket_title}"
         if zammad_entry.description:
             description += f"\n\n{zammad_entry.description}"
         
         if len(description) > 500:
             description = description[:497] + "..."
-            log.debug("Truncated description to 500 characters")
         
-        log.debug(f"Timesheet description: {description}")
-        
-        # Build tags
+        # Build tags with new canonical format
         tags = [
             "source:zammad",
-            f"ticket:{zammad_entry.ticket_number or zammad_entry.ticket_id}",
-            f"zammad_entry:{zammad_entry.source_id}"
+            zid_tag,  # Canonical idempotency tag
+            f"ticket:{zammad_entry.ticket_number or zammad_entry.ticket_id}"
         ]
         
-        # Add billing tag if we have entry date
+        # Add billing tag
         if zammad_entry.entry_date:
             year_month = zammad_entry.entry_date[:7]  # YYYY-MM
             tags.append(f"billed:{year_month}")
-            log.debug(f"Added billing tag: billed:{year_month}")
         
         log.debug(f"Timesheet tags: {tags}")
         
-        # Build timesheet payload using 'end' instead of 'duration'
-        # TimesheetEditForm requires begin and end (not duration)
+        # Build timesheet payload
         timesheet_payload = {
             "project": project_id,
             "activity": activity_id,
-            "begin": begin_dt.strftime('%Y-%m-%dT%H:%M:%S'),  # HTML5 local datetime
-            "end": end_dt.strftime('%Y-%m-%dT%H:%M:%S'),  # HTML5 local datetime
+            "begin": begin_local,
+            "end": end_local,
             "description": description,
-            "tags": ",".join(tags)  # Kimai expects comma-separated string
+            "tags": ",".join(tags)
         }
         
-        log.debug(f"Timesheet payload: {timesheet_payload}")
+        log.debug(f"Creating timesheet with payload: {timesheet_payload}")
         
         try:
             timesheet = await self.kimai_connector.create_timesheet(timesheet_payload)
-            log.info(f"Successfully created Kimai timesheet ID: {timesheet.get('id')}")
+            log.info(f"Created Kimai timesheet ID {timesheet.get('id')} for Zammad entry {zammad_entry.source_id}")
             return timesheet
         except ValueError as ve:
             log.error(f"ValueError creating timesheet: {str(ve)}")

@@ -9,6 +9,35 @@ from app.utils.encrypt import decrypt_data
 
 log = logging.getLogger(__name__)
 
+def _to_local_html5(dt_str: Optional[str]) -> Optional[str]:
+    """
+    Convert Kimai ISO-8601 (with or without timezone) to HTML5 local datetime
+    'YYYY-MM-DDTHH:MM:SS' (no timezone). Returns None if input is falsy/invalid.
+    """
+    if not dt_str:
+        return None
+    try:
+        # Kimai returns ISO-8601 with offset, eg. '2025-10-28T13:37:24+01:00'
+        dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+    except Exception:
+        return None
+    # Drop tzinfo -> local naive, keep wall-clock
+    return dt.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S")
+
+def _seconds_from(begin_local: Optional[str], end_local: Optional[str]) -> int:
+    """
+    Calculate seconds difference from two HTML5 local datetimes.
+    Returns 0 if not computable.
+    """
+    if not begin_local or not end_local:
+        return 0
+    try:
+        b = datetime.fromisoformat(begin_local)
+        e = datetime.fromisoformat(end_local)
+        return max(0, int((e - b).total_seconds()))
+    except Exception:
+        return 0
+
 class KimaiConnector(BaseConnector):
     """
     Connector for Kimai time tracking system.
@@ -177,80 +206,92 @@ class KimaiConnector(BaseConnector):
             raise ValueError(error_msg)
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
-        """
-        Fetches time sheets from Kimai within a given date range.
-        
-        Args:
-            start_date: Date string in 'YYYY-MM-DD' format
-            end_date: Date string in 'YYYY-MM-DD' format
-            
-        Note: Kimai requires HTML5 local datetime format for begin/end params.
-        The 'user' parameter is omitted to default to the current authenticated user.
-        """
-        log.info(f"Fetching Kimai time entries for date range: {start_date} to {end_date}")
-        # Convert dates to HTML5 local datetime format
-        # Start of day for begin, end of day for end
-        begin_datetime = f"{start_date}T00:00:00"
-        end_datetime = f"{end_date}T23:59:59"
-        
         params = {
-            "begin": begin_datetime,
-            "end": end_datetime,
-            # Do NOT include 'user' parameter - defaults to current user
-            # Using 'user=current' causes 400 errors (must be numeric ID or 'all')
+            "begin": f"{start_date}T00:00:00",
+            "end": f"{end_date}T23:59:59",
             "orderBy": "begin",
-            "order": "DESC"
+            "order": "DESC",
+            "full": "true"  # CRITICAL: Fetch tags and full details
         }
-        
-        log.debug(f"Fetching Kimai timesheets with params: {params}")
         response_data = await self._request("GET", "/api/timesheets", params=params)
-        log.info(f"Received {len(response_data)} raw timesheets from Kimai")
-        
-        normalized_entries = []
-        for entry in response_data:
-            # Kimai API often returns dates in ISO format already
-            begin_datetime = datetime.fromisoformat(entry["begin"])
-            end_datetime = datetime.fromisoformat(entry["end"])
-            duration_minutes = (end_datetime - begin_datetime).total_seconds() / 60
+        count = len(response_data) if isinstance(response_data, list) else 0
+        log.info(f"Received {count} raw timesheets from Kimai (full=true)")
 
-            # Handle both collection format (activity as int) and entity format (activity as object)
-            activity_data = entry["activity"]
-            if isinstance(activity_data, dict):
-                # Full entity format (from POST response)
-                activity_id = activity_data["id"]
-                activity_name = activity_data["name"]
-            else:
-                # Collection format (from GET response) - activity is just the ID
-                activity_id = activity_data
-                activity_name = None  # Name not available in collection format
-            
-            # Handle user field similarly
-            user_data = entry["user"]
-            if isinstance(user_data, dict):
-                user_email = user_data.get("email", user_data.get("username", "unknown"))
-            else:
-                user_email = None  # User ID only in collection format
+        normalized: List[TimeEntryNormalized] = []
+        for entry in (response_data or []):
+            # entry with full=true includes expanded objects
+            raw_activity = entry.get("activity")
+            raw_project = entry.get("project")
+            raw_user    = entry.get("user")
 
-            normalized = TimeEntryNormalized(
-                source_id=str(entry["id"]),
+            # Extract IDs from either ints or nested objects
+            def _id(x: Any) -> Optional[int]:
+                if x is None:
+                    return None
+                if isinstance(x, int):
+                    return x
+                if isinstance(x, dict):
+                    return x.get("id")
+                return None
+
+            begin_local = _to_local_html5(entry.get("begin"))
+            end_local   = _to_local_html5(entry.get("end"))
+
+            # Duration in seconds: prefer server-provided, else compute from begin/end
+            duration_s = entry.get("duration")
+            if duration_s is None:
+                duration_s = _seconds_from(begin_local, end_local)
+            time_minutes = round((duration_s or 0) / 60.0, 2)
+
+            # Kimai returns actual timestamps with full=true
+            created_at = entry.get("begin")  # Use begin as created_at
+            updated_at = entry.get("end", created_at)
+
+            # Parse tags - handle both array and string formats
+            tags = entry.get("tags") or []
+            if isinstance(tags, str):
+                tags = [t.strip() for t in tags.split(",") if t.strip()]
+            elif isinstance(tags, list):
+                # Handle both string tags and potential object tags
+                parsed_tags = []
+                for tag in tags:
+                    if isinstance(tag, str):
+                        parsed_tags.append(tag)
+                    elif isinstance(tag, dict) and "name" in tag:
+                        parsed_tags.append(tag["name"])
+                tags = parsed_tags
+            else:
+                tags = []
+
+            entry_date = None
+            if begin_local:
+                entry_date = begin_local.split("T")[0]
+
+            normalized.append(TimeEntryNormalized(
                 source="kimai",
-                ticket_number=None, # Kimai doesn't inherently have a ticket number field, might be in description/tags
+                source_id=str(entry.get("id")),
+                description=entry.get("description") or "",
+                time_minutes=float(time_minutes),
+                activity_type_id=_id(raw_activity),
+                activity_name=None,   # can be hydrated later if needed
+                user_email=None,      # user email not in this payload; optional in model
+                entry_date=entry_date,
+                created_at=created_at,
+                updated_at=updated_at,
+                tags=tags,
+                ticket_number=None,
                 ticket_id=None,
-                description=entry.get("description", ""),
-                time_minutes=duration_minutes,
-                activity_type_id=activity_id,
-                activity_name=activity_name,
-                user_email=user_email,
-                entry_date=begin_datetime.strftime("%Y-%m-%d"),
-                created_at=entry["createdAt"],
-                updated_at=entry["updatedAt"],
-                tags=entry.get("tags", [])
-            )
-            normalized_entries.append(normalized)
-            log.debug(f"Normalized Kimai entry {normalized.source_id}: {normalized.description or 'no desc'}, {duration_minutes} min on {normalized.entry_date}, activity {normalized.activity_type_id}")
+            ))
 
-        log.info(f"Created {len(normalized_entries)} normalized Kimai time entries")
-        return normalized_entries
+        if normalized:
+            sample = normalized[0]
+            log.debug(
+                f"Kimai normalized sample id={sample.source_id} "
+                f"begin={sample.created_at} end={sample.updated_at} "
+                f"time_minutes={sample.time_minutes} tags={sample.tags}"
+            )
+        log.info(f"Kimai fetch normalized {len(normalized)} entries ({params['begin']} → {params['end']}), tags included")
+        return normalized
 
 
     async def create_time_entry(self, time_entry: TimeEntryNormalized) -> TimeEntryNormalized:
@@ -432,6 +473,49 @@ class KimaiConnector(BaseConnector):
             log.error(f"Error finding customer: {e.response.status_code} - {e.response.text}")
             return None
 
+    async def find_customer_by_number(self, external_number: str) -> Optional[Dict[str, Any]]:
+        """
+        Finds a customer in Kimai by exact number match (external ID).
+        Returns the customer if found, None otherwise.
+        """
+        try:
+            params = {"term": external_number, "visible": "3"}
+            response_data = await self._request("GET", "/api/customers", params=params)
+            
+            # Filter client-side for exact match on number field
+            for customer in (response_data or []):
+                if customer.get("number") == external_number:
+                    log.debug(f"Found customer by number {external_number}: {customer.get('name')} (ID: {customer.get('id')})")
+                    return customer
+            
+            log.debug(f"No customer found with exact number: {external_number}")
+            return None
+        except httpx.HTTPStatusError as e:
+            log.error(f"Error finding customer by number: {e.response.status_code} - {e.response.text}")
+            return None
+
+    async def find_customer_by_name_exact(self, name: str) -> Optional[Dict[str, Any]]:
+        """
+        Finds a customer in Kimai by exact name match (case-insensitive).
+        Returns the customer if found, None otherwise.
+        """
+        try:
+            params = {"term": name, "visible": "3"}
+            response_data = await self._request("GET", "/api/customers", params=params)
+            
+            # Filter client-side for exact match (case-insensitive)
+            name_lower = name.lower()
+            for customer in (response_data or []):
+                if customer.get("name", "").lower() == name_lower:
+                    log.debug(f"Found customer by exact name '{name}': ID {customer.get('id')}")
+                    return customer
+            
+            log.debug(f"No customer found with exact name: {name}")
+            return None
+        except httpx.HTTPStatusError as e:
+            log.error(f"Error finding customer by name: {e.response.status_code} - {e.response.text}")
+            return None
+
     async def create_customer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Creates a new customer in Kimai.
@@ -510,6 +594,83 @@ class KimaiConnector(BaseConnector):
         except httpx.HTTPStatusError as e:
             log.error(f"Error updating project {project_id}: {e.response.status_code} - {e.response.text}")
             raise ValueError(f"Failed to update Kimai project {project_id}: {e.response.text}")
+
+    async def find_project_by_number(self, customer_id: int, project_number: str) -> Optional[Dict[str, Any]]:
+        """
+        Finds a project in Kimai by exact number match (external ID).
+        Returns the project if found, None otherwise.
+        """
+        try:
+            params = {"customer": str(customer_id), "visible": "3", "term": project_number}
+            response_data = await self._request("GET", "/api/projects", params=params)
+            
+            # Filter client-side for exact match on number field
+            for project in (response_data or []):
+                if project.get("number") == project_number:
+                    log.debug(f"Found project by number {project_number}: {project.get('name')} (ID: {project.get('id')})")
+                    return project
+            
+            log.debug(f"No project found with exact number: {project_number}")
+            return None
+        except httpx.HTTPStatusError as e:
+            log.error(f"Error finding project by number: {e.response.status_code} - {e.response.text}")
+            return None
+
+    async def find_timesheet_by_tag_and_range(
+        self, 
+        tag: str, 
+        begin: str, 
+        end: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Finds a timesheet in Kimai by tag within a date range.
+        Used for idempotency checking.
+        
+        Args:
+            tag: Tag to search for (e.g., "zid:123")
+            begin: Start datetime in HTML5 format (YYYY-MM-DDTHH:MM:SS)
+            end: End datetime in HTML5 format (YYYY-MM-DDTHH:MM:SS)
+            
+        Returns:
+            First matching timesheet or None
+        """
+        try:
+            params = {
+                "begin": begin,
+                "end": end,
+                "full": "true",  # Need tags
+                "size": "10"  # Limit results
+            }
+            
+            # Note: Kimai API doesn't support tags[] filter parameter in practice
+            # We'll fetch timesheets in the range and filter client-side
+            response_data = await self._request("GET", "/api/timesheets", params=params)
+            
+            # Filter client-side for the specific tag
+            for timesheet in (response_data or []):
+                tags = timesheet.get("tags") or []
+                if isinstance(tags, str):
+                    tags = [t.strip() for t in tags.split(",") if t.strip()]
+                elif isinstance(tags, list):
+                    # Handle both string tags and object tags
+                    parsed_tags = []
+                    for t in tags:
+                        if isinstance(t, str):
+                            parsed_tags.append(t)
+                        elif isinstance(t, dict) and "name" in t:
+                            parsed_tags.append(t["name"])
+                    tags = parsed_tags
+                
+                if tag in tags:
+                    log.debug(f"Found timesheet with tag '{tag}': ID {timesheet.get('id')}")
+                    return timesheet
+            
+            log.debug(f"No timesheet found with tag '{tag}' in range {begin} to {end}")
+            return None
+            
+        except httpx.HTTPStatusError as e:
+            log.error(f"Error finding timesheet by tag: {e.response.status_code} - {e.response.text}")
+            return None
 
     async def create_timesheet(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """

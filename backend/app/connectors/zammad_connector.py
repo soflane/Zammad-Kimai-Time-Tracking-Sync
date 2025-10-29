@@ -44,7 +44,7 @@ class ZammadConnector(BaseConnector):
             raise
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
-        """Fetches aggregated time entries from Zammad by ticket, date, and activity."""
+        """Fetches individual time entries from Zammad (not aggregated)."""
         log.info(f"Fetching Zammad time entries for date range: {start_date} to {end_date}")
         # Fetch all tickets updated/created in the date range
         tickets = await self.fetch_tickets_by_date(start_date, end_date)
@@ -52,83 +52,103 @@ class ZammadConnector(BaseConnector):
         
         normalized_entries = []
         total_time_accountings = 0
+        
         for ticket in tickets:
             log.debug(f"Processing ticket {ticket['number']} (ID: {ticket['id']})")
             
+            # Fetch organization details if present
+            org = None
             if ticket.get("organization_id"):
                 org = await self.fetch_organization(ticket["organization_id"])
-                users = await self.fetch_users_by_org(ticket["organization_id"])
-                log.debug(f"Ticket {ticket['number']} belongs to org {org['name'] if org else 'none'}, users: {len(users)}")
-            else:
-                org = None
-                users = []
-                log.debug(f"Ticket {ticket['number']} has no organization")
+                log.debug(f"Ticket {ticket['number']} belongs to org {org['name'] if org else 'none'}")
+            
+            # Fetch customer user details
+            customer_user = None
+            if ticket.get("customer_id"):
+                try:
+                    customer_user = await self._request("GET", f"/api/v1/users/{ticket['customer_id']}")
+                    log.debug(f"Ticket customer: {customer_user.get('email', 'unknown')}")
+                except Exception as e:
+                    log.warning(f"Could not fetch customer user {ticket['customer_id']}: {e}")
 
             # Fetch time accountings for this ticket
             time_accountings = await self.fetch_ticket_time_accountings(ticket["id"], start_date, end_date)
             total_time_accountings += len(time_accountings)
             log.debug(f"Ticket {ticket['number']} has {len(time_accountings)} time accountings in range")
             
-            # Group by activity_type_id and entry_date, sum time
-            grouped = {}
+            # Create individual normalized entries (NO AGGREGATION)
             for entry in time_accountings:
-                # DEBUG: Log raw entry to see actual field names and values
-                log.debug(f"Raw Zammad time accounting entry: {entry}")
+                log.trace(f"Raw Zammad time accounting entry: {entry}")
                 
-                date = entry.get("created_at", "").split("T")[0]
-                activity_id = entry.get("type_id")
-                
-                # Try different field names for time/duration
+                # Get time value
                 time_value = entry.get("time_unit", entry.get("time", 0))
-                log.debug(f"Time accounting fields - type_id: {activity_id}, time_unit: {entry.get('time_unit')}, time: {entry.get('time')}, calculated: {time_value}")
+                if not time_value or float(time_value) <= 0:
+                    log.trace(f"Skipping zero-duration time accounting {entry.get('id')}")
+                    continue
                 
-                key = (ticket["id"], date, activity_id)
-                if key not in grouped:
-                    grouped[key] = {
-                        "ticket_id": ticket["id"],
-                        "ticket_number": ticket["number"],
-                        "ticket_title": ticket["title"],
-                        "org_id": ticket.get("organization_id"),
-                        "org_name": org["name"] if org else None,
-                        "user_emails": [u.get("email") for u in users] if users else [],
-                        "activity_type_id": activity_id,
-                        "activity_name": entry.get("type", {}).get("name") if isinstance(entry.get("type"), dict) else entry.get("type", ""),
-                        "description": entry.get("note", ""),
-                        "entry_date": date,
-                        "created_at": entry.get("created_at"),
-                        "updated_at": entry.get("updated_at"),
-                        "total_minutes": 0
-                    }
-                grouped[key]["total_minutes"] += float(time_value)
-
-            # Convert to normalized entries
-            for key, data in grouped.items():
-                if data["total_minutes"] <= 0:
-                    log.trace(f"Skipping zero-duration entry for ticket {data['ticket_number']}, activity {data['activity_type_id']}, date {data['entry_date']}")
-                    continue  # Skip zero-duration entries
-
-                user_email = data["user_emails"][0] if data["user_emails"] else "unknown@zammad.com"
-                description = data["description"] if data["description"] else f"Time tracking for ticket {data['ticket_number']}"
+                # Use the actual time_accounting ID as source_id (critical for idempotency)
+                time_accounting_id = entry.get("id")
+                if not time_accounting_id:
+                    log.warning(f"Time accounting missing ID, skipping: {entry}")
+                    continue
+                
+                # Preserve the real created_at timestamp (this is the actual work time)
+                created_at = entry.get("created_at")
+                updated_at = entry.get("updated_at", created_at)
+                
+                # Extract date from created_at
+                entry_date = created_at.split("T")[0] if created_at else start_date
+                
+                # Get activity info
+                activity_id = entry.get("type_id")
+                activity_name = entry.get("type", {}).get("name") if isinstance(entry.get("type"), dict) else entry.get("type", "")
+                
+                # Build description
+                description = entry.get("note", "").strip()
+                if not description:
+                    description = f"Time tracking for ticket {ticket['number']}"
+                
+                # Determine user email
+                user_email = "unknown@zammad.com"
+                if customer_user and customer_user.get("email"):
+                    user_email = customer_user["email"]
+                
+                # Determine organization info
+                org_id = None
+                org_name = None
+                if org:
+                    org_id = org.get("id")
+                    org_name = org.get("name")
+                elif customer_user and customer_user.get("organization_id"):
+                    # Customer has org but ticket doesn't reference it
+                    org_id = customer_user["organization_id"]
+                    try:
+                        user_org = await self.fetch_organization(org_id)
+                        if user_org:
+                            org_name = user_org.get("name")
+                    except Exception:
+                        pass
+                
                 normalized_entries.append(TimeEntryNormalized(
-                    source_id=f"{data['ticket_id']}_{data['activity_type_id']}_{data['entry_date']}",  # Unique ID for aggregated
+                    source_id=str(time_accounting_id),  # Individual time_accounting ID
                     source="zammad",
-                    ticket_number=data["ticket_number"],
-                    ticket_id=data["ticket_id"],
-                    ticket_title=data["ticket_title"],  # Add to model if needed
-                    org_id=data["org_id"],
-                    org_name=data["org_name"],
-                    user_emails=data["user_emails"],
+                    ticket_number=ticket["number"],
+                    ticket_id=ticket["id"],
+                    ticket_title=ticket.get("title", ""),
+                    org_id=org_id,
+                    org_name=org_name,
+                    user_emails=[user_email] if user_email != "unknown@zammad.com" else [],
                     description=description,
-                    time_minutes=data["total_minutes"],
-                    activity_type_id=data["activity_type_id"],
-                    activity_name=data["activity_name"],
+                    time_minutes=float(time_value),
+                    activity_type_id=activity_id,
+                    activity_name=activity_name,
                     user_email=user_email,
-                    entry_date=data["entry_date"],
-                    created_at=data["created_at"],
-                    updated_at=data["updated_at"],
+                    entry_date=entry_date,
+                    created_at=created_at,  # Real timestamp from Zammad
+                    updated_at=updated_at,
                     tags=[]
                 ))
-                log.debug(f"Created normalized entry: {data['ticket_number']} - {data['total_minutes']} min on {data['entry_date']}")
+                log.trace(f"Normalized time_accounting {time_accounting_id}: ticket {ticket['number']}, {time_value} min, created_at={created_at}")
 
         log.info(f"Total Zammad tickets processed: {len(tickets)}, total time accountings: {total_time_accountings}, normalized entries: {len(normalized_entries)}")
         return normalized_entries

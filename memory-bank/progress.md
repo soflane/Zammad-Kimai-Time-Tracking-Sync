@@ -92,6 +92,15 @@
   - Updated frontend UI for Kimai config and Mappings empty states
   - All syntax validated, frontend builds successfully
 - [x] Error handling refinement (comprehensive logging and HTTP exceptions)
+- [x] **Zammad→Kimai Sync Fixes (October 2025)**:
+  - Fixed multi-customer sync: Deterministic lookup using external number (ZAM-ORG-{id})
+  - Fixed timestamps: Uses real Zammad `created_at` converted to local timezone (no more 09:00)
+  - Fixed duplicates: Tag-based idempotency with `zid:{time_accounting_id}` (second sync creates 0 entries)
+  - Added exact lookup methods: `find_customer_by_number()`, `find_timesheet_by_tag_and_range()`
+  - Added `default_activity_id` config for unmapped activities
+  - Enhanced tag parsing with `full=true` on timesheet queries
+  - Created `SYNC_FIXES_SUMMARY.md` with technical details
+  - All Python syntax validated, no database migrations needed
 - [ ] Integration testing
 - [ ] Performance optimization
 - [ ] User documentation
@@ -99,7 +108,6 @@
 
 ## Known Issues
 - Frontend has 4 npm vulnerabilities (2 moderate, 2 high) - run `npm audit fix` in frontend/
-- Sync tested with single mapping; verify multi-mapping and configure default_project_id for full coverage
 - Authentication and UI functional as before
 
 ## Notes

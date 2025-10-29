@@ -17,10 +17,10 @@ class TimeEntryNormalized(BaseModel):
     time_minutes: float = Field(..., gt=0, description="Duration of the time entry in minutes")
     activity_type_id: Optional[int] = Field(None, description="ID of the activity type")
     activity_name: Optional[str] = Field(None, description="Name of the activity type")
-    user_email: str = Field(..., description="Email of the user who logged the time")
+    user_email: Optional[str] = Field(None, description="Email of the user who logged the time")
     entry_date: str = Field(..., description="Date of the work (YYYY-MM-DD)")
-    created_at: str = Field(..., description="ISO 8601 timestamp of creation")
-    updated_at: str = Field(..., description="ISO 8601 timestamp of last update")
+    created_at: Optional[str] = Field(None, description="ISO 8601 timestamp of creation")
+    updated_at: Optional[str] = Field(None, description="ISO 8601 timestamp of last update")
     tags: List[str] = Field([], description="List of tags associated with the time entry")
 
 class BaseConnector(ABC):
