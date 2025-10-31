@@ -263,24 +263,46 @@ class KimaiConnector(BaseConnector):
             else:
                 tags = []
 
+            # Parse Zammad metadata from tags for matching (idempotency)
+            parsed_source_id = str(entry.get("id"))  # Default to Kimai ID
+            parsed_ticket_number = None
+            for tag in tags:
+                if tag.startswith("zid:"):
+                    parsed_source_id = tag.split("zid:", 1)[1]
+                if tag.startswith("ticket:"):
+                    parsed_ticket_number = tag.split("ticket:", 1)[1].lstrip("#")
+
+            # Fallback: Parse ticket_number from description if not from tags (legacy support)
+            desc = entry.get("description", "")
+            import re
+            ticket_match = re.search(r"Ticket-([#]?\d+)", desc)
+            if ticket_match and not parsed_ticket_number:
+                parsed_ticket_number = ticket_match.group(1).lstrip("#")
+                log.debug(f"Parsed ticket_number '{parsed_ticket_number}' from description: {desc[:50]}...")
+
+            log.debug(f"Normalized Kimai {parsed_source_id}: ticket={parsed_ticket_number}, begin_time={begin_local}")
+
             entry_date = None
             if begin_local:
                 entry_date = begin_local.split("T")[0]
 
             normalized.append(TimeEntryNormalized(
                 source="kimai",
-                source_id=str(entry.get("id")),
-                description=entry.get("description") or "",
+                source_id=parsed_source_id,
+                description=desc,
                 duration_sec=duration_sec,
                 activity_type_id=_id(raw_activity),
                 activity_name=None,   # can be hydrated later if needed
                 user_email=None,      # user email not in this payload; optional in model
+                user_name=None,
                 entry_date=entry_date,
                 created_at=created_at,
                 updated_at=updated_at,
                 tags=tags,
-                ticket_number=None,
+                ticket_number=parsed_ticket_number,
                 ticket_id=None,
+                begin_time=begin_local,
+                end_time=end_local,
             ))
 
         if normalized:

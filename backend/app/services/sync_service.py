@@ -439,46 +439,32 @@ class SyncService:
         
         log.trace(f"Timesheet times: begin={begin_local}, end={end_local}, duration={(zammad_entry.duration_sec // 60)} min")
         
-        # Build stable idempotency tag (canonical source ID)
-        zid_tag = f"zid:{zammad_entry.source_id}"
-        
-        # Check for existing timesheet with this tag (IDEMPOTENCY)
-        day_begin = begin_local.split('T')[0] + "T00:00:00"
-        day_end = begin_local.split('T')[0] + "T23:59:59"
-        
-        log.debug(f"Checking for existing timesheet with tag '{zid_tag}' in range {day_begin} to {day_end}")
-        existing = await self.kimai_connector.find_timesheet_by_tag_and_range(zid_tag, day_begin, day_end)
-        
-        if existing:
-            log.info(f"Timesheet already exists for Zammad entry {zammad_entry.source_id}: Kimai ID {existing.get('id')} (skipping create)")
-            return existing
-        
-        # Build description with stable template
-        ticket_ref = zammad_entry.ticket_number or f"#{zammad_entry.ticket_id}"
-        description = f"Ticket-{ticket_ref}"  # Stable first line
-        
-        # Add additional details on new lines
-        if hasattr(zammad_entry, 'ticket_title') and zammad_entry.ticket_title:
-            description += f"\n{zammad_entry.ticket_title}"
-        if zammad_entry.description:
-            description += f"\n\n{zammad_entry.description}"
+        # Build standardized description template
+        ticket_id = zammad_entry.ticket_id
+        zid = zammad_entry.source_id
+        ticket_ref = zammad_entry.ticket_number or f"#{ticket_id}"
+        customer_name = self._determine_customer_name(zammad_entry)
+        org_name = zammad_entry.org_name
+        title_part = zammad_entry.ticket_title or ""
+        description = f"Ticket-{ticket_ref}\nZammad Ticket ID: {ticket_id}\nTime Accounting ID: {zid}\nCustomer: {customer_name}\n"
+        if org_name:
+            description += f"Organization: {org_name}\n"
+        description += f"Title: {title_part}"
         
         if len(description) > 500:
             description = description[:497] + "..."
         
-        # Build tags with new canonical format
+        log.debug(f"Built description for {zammad_entry.source_id}: {description[:100]}...")
+        
+        # Build tags with new canonical format - only source:zammad as required
         tags = [
-            "source:zammad",
-            zid_tag,  # Canonical idempotency tag
-            f"ticket:{zammad_entry.ticket_number or zammad_entry.ticket_id}"
+            "source:zammad"
         ]
         
-        # Add billing tag
-        if zammad_entry.entry_date:
-            year_month = zammad_entry.entry_date[:7]  # YYYY-MM
-            tags.append(f"billed:{year_month}")
-        
         log.debug(f"Timesheet tags: {tags}")
+        
+        # Note: Idempotency now relies on ReconcilerService matching (ticket_id, date, duration);
+        # tag-based check removed to comply with "only source:zammad" requirement
         
         # Build timesheet payload
         timesheet_payload = {

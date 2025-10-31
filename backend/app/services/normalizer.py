@@ -30,12 +30,14 @@ class NormalizerService:
         updated_at_dt = datetime.fromisoformat(zammad_data["updated_at"].replace("Z", "+00:00"))
 
         duration_sec = int(float(zammad_data.get("time_unit", 0)) * 60)
+        zid = zammad_data["id"]
+        ticket_id = zammad_data.get("ticket_id")
         return TimeEntryNormalized(
-            source_id=str(zammad_data["id"]),
+            source_id=str(zid),
             source="zammad",
-            ticket_id=zammad_data.get("ticket_id"),
+            ticket_id=ticket_id,
             ticket_number=None,
-            description=f"Time on Ticket {zammad_data.get('ticket_id')}",
+            description=f"Time on Ticket {ticket_id} (zid: {zid})",
             duration_sec=duration_sec,
             begin_time=None,
             end_time=None,
@@ -45,7 +47,7 @@ class NormalizerService:
             entry_date=created_at_dt.strftime("%Y-%m-%d"),
             created_at=zammad_data["created_at"],
             updated_at=zammad_data["updated_at"],
-            tags=[],
+            tags=["source:zammad"],
             customer_name=None,
             project_name=None
         )

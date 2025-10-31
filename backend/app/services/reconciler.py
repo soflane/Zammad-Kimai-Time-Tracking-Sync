@@ -2,6 +2,9 @@ from typing import List, Dict, Optional
 from enum import Enum
 
 from app.connectors.base import TimeEntryNormalized
+import logging
+
+log = logging.getLogger(__name__)
 
 class ReconciliationStatus(str, Enum):
     MATCH = "match"
@@ -32,15 +35,28 @@ class ReconciliationService:
         Checks for an exact match between two normalized time entries.
         Criteria: same source_id (if available from previous sync), or same ticket, date, and time.
         """
-        if zammad_entry.source_id and kimai_entry.source_id and zammad_entry.source_id == kimai_entry.source_id:
-            return True # Assume source_id means they are the same entry across systems
+        log.debug(f"Matching check: Zammad {zammad_entry.source_id} (ticket: {zammad_entry.ticket_number}, begin: {zammad_entry.begin_time}, dur: {zammad_entry.duration_sec}) vs Kimai {kimai_entry.source_id} (ticket: {kimai_entry.ticket_number}, begin: {kimai_entry.begin_time}, dur: {kimai_entry.duration_sec})")
         
-        # Primary matching: ticket_id/number, entry_date, and duration
-        if (zammad_entry.ticket_id == kimai_entry.ticket_id or 
-            zammad_entry.ticket_number == kimai_entry.ticket_number) and \
-           zammad_entry.entry_date == kimai_entry.entry_date and \
-           abs(zammad_entry.time_minutes - kimai_entry.time_minutes) < 1.0: # Allow small discrepancies (e.g., floating point)
+        # Exact source_id (from zid tag)
+        if zammad_entry.source_id and kimai_entry.source_id and zammad_entry.source_id == kimai_entry.source_id:
+            log.debug(" -> Exact match on source_id")
             return True
+        
+        # Exact on ticket_number + begin_time + duration (±60s)
+        if (zammad_entry.ticket_number == kimai_entry.ticket_number and
+            zammad_entry.begin_time == kimai_entry.begin_time and
+            abs(zammad_entry.duration_sec - kimai_entry.duration_sec) <= 60):
+            log.debug(" -> Exact match on ticket + begin_time + duration")
+            return True
+        
+        # Fallback: ticket + entry_date + duration (<1 min diff)
+        if (zammad_entry.ticket_number == kimai_entry.ticket_number and
+            zammad_entry.entry_date == kimai_entry.entry_date and
+            abs((zammad_entry.duration_sec / 60) - (kimai_entry.duration_sec / 60)) < 1.0):
+            log.debug(" -> Match on fallback: ticket + date + duration")
+            return True
+        
+        log.debug(" -> No match")
         return False
 
     def _is_conflict(self, zammad_entry: TimeEntryNormalized, kimai_entry: TimeEntryNormalized) -> bool:
@@ -48,12 +64,23 @@ class ReconciliationService:
         Checks if two entries are likely referring to the same work but have different values.
         This is a heuristic and can be refined.
         """
-        # More flexible matching for potential conflicts: similar ticket, date, but different times
-        if (zammad_entry.ticket_id == kimai_entry.ticket_id or 
-            zammad_entry.ticket_number == kimai_entry.ticket_number) and \
-           zammad_entry.entry_date == kimai_entry.entry_date and \
-           abs(zammad_entry.time_minutes - kimai_entry.time_minutes) >= 1.0:
+        log.debug(f"Conflict check: Zammad {zammad_entry.source_id} vs Kimai {kimai_entry.source_id}")
+        
+        # Loose match on ticket + begin_time but duration diff >60s
+        if (zammad_entry.ticket_number == kimai_entry.ticket_number and
+            zammad_entry.begin_time == kimai_entry.begin_time and
+            abs(zammad_entry.duration_sec - kimai_entry.duration_sec) > 60):
+            log.debug(" -> Conflict on ticket + begin_time, duration mismatch")
             return True
+        
+        # Fallback loose: ticket + date, duration >=1 min diff
+        if (zammad_entry.ticket_number == kimai_entry.ticket_number and
+            zammad_entry.entry_date == kimai_entry.entry_date and
+            abs((zammad_entry.duration_sec / 60) - (kimai_entry.duration_sec / 60)) >= 1.0):
+            log.debug(" -> Conflict on fallback: ticket + date, duration diff")
+            return True
+        
+        log.debug(" -> No conflict")
         return False
 
 
@@ -92,6 +119,12 @@ class ReconciliationService:
                     del unmatched_kimai_entries[k_id]
                     found_match = True
                     break
+                # Log potential near-misses for debugging
+                if z_entry.ticket_number == k_entry.ticket_number:
+                    log.debug(f"Near miss on ticket {z_entry.ticket_number}: date {z_entry.entry_date} vs {k_entry.entry_date}, begin {z_entry.begin_time} vs {k_entry.begin_time}, dur {z_entry.duration_sec} vs {k_entry.duration_sec}")
+            
+            if not found_match:
+                log.debug(f"No match for Zammad {z_entry.source_id} (ticket {z_entry.ticket_number}, date {z_entry.entry_date})")
             
             if not found_match:
                 reconciled_results.append(ReconciledTimeEntry(

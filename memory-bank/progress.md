@@ -101,10 +101,17 @@
   - Enhanced tag parsing with `full=true` on timesheet queries
   - Created `SYNC_FIXES_SUMMARY.md` with technical details
   - All Python syntax validated, no database migrations needed
+- [x] **Updated Kimai Tagging and Description (October 2025)**:
+  - Enhanced normalizer description with Zammad ID (zid): e.g., "Time on Ticket {ticket_id} (zid: {zid})"
+  - In sync_service.py, added explicit "Zammad Ticket ID: {ticket_id} | Time Accounting ID: {zid}" to final description for prominent matching.
+  - Confirmed "source:zammad" tag only (removed zid/ticket tags); removed tag-based idempotency (relies on reconciler).
+  - Removed automatic "billed:{YYYY-MM}" tag for manual addition in Kimai.
+  - Files: normalizer.py (base desc/tags), sync_service.py (explicit desc, tag refinement, no billed).
+  - Impact: Clear zid/ticket_id visibility, only source tag, no duplicates via reconciler, no auto-billing.
+  - Syntax validated; ready for testing.
 - [ ] Integration testing
 - [ ] Performance optimization
 - [ ] User documentation
-- [ ] Deployment guide
 
 ## Known Issues
 - Frontend has 4 npm vulnerabilities (2 moderate, 2 high) - run `npm audit fix` in frontend/

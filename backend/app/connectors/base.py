@@ -23,6 +23,7 @@ class TimeEntryNormalized(BaseModel):
     customer_name: Optional[str] = Field(None, description="Customer name")
     project_name: Optional[str] = Field(None, description="Project name")
     user_email: Optional[str] = Field(None, description="Email of the user who logged the time")
+    user_name: Optional[str] = Field(None, description="Name of the user who logged the time")
     entry_date: str = Field(..., description="Date of the work (YYYY-MM-DD)")
     begin_time: Optional[str] = Field(None, description="ISO 8601 timestamp of begin time")
     end_time: Optional[str] = Field(None, description="ISO 8601 timestamp of end time")

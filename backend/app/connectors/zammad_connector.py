@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 
 from app.connectors.base import BaseConnector, TimeEntryNormalized
 from app.config import settings
+from datetime import datetime
+from zoneinfo import ZoneInfo
 # from app.encrypt import decrypt_data  # Assuming an encryption utility for API tokens
 
 log = logging.getLogger(__name__)
@@ -24,7 +26,27 @@ class ZammadConnector(BaseConnector):
             "Authorization": f"Token token={self.api_token}",
             "Content-Type": "application/json"
         }
+        self._user_cache: Dict[int, Dict[str, Any]] = {}
         log.info(f"Zammad connector initialized with base URL: {self.base_url}")
+
+    def _to_local_html5(self, iso_timestamp: str, timezone: str = "Europe/Brussels") -> str:
+        """
+        Convert ISO-8601 timestamp to HTML5 local datetime in specified timezone.
+        Returns format: YYYY-MM-DDTHH:MM:SS (no timezone suffix).
+        """
+        try:
+            # Parse ISO timestamp (handles both Z and +00:00 formats)
+            dt = datetime.fromisoformat(iso_timestamp.replace('Z', '+00:00'))
+            
+            # Convert to target timezone
+            tz = ZoneInfo(timezone)
+            dt_local = dt.astimezone(tz)
+            
+            # Return as HTML5 local datetime (no timezone)
+            return dt_local.replace(tzinfo=None).strftime("%Y-%m-%dT%H:%M:%S")
+        except Exception as e:
+            log.error(f"Failed to convert timestamp '{iso_timestamp}' to local HTML5: {e}")
+            raise
 
     async def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         """Helper to make authenticated requests to Zammad API."""
@@ -42,6 +64,19 @@ class ZammadConnector(BaseConnector):
         except httpx.RequestError as e:
             log.error(f"Request error for {e.request.url}: {e}")
             raise
+
+    async def _fetch_user(self, user_id: int) -> Dict[str, Any]:
+        """Fetches user details by ID, with caching."""
+        if user_id in self._user_cache:
+            return self._user_cache[user_id]
+        try:
+            user = await self._request("GET", f"/api/v1/users/{user_id}")
+            self._user_cache[user_id] = user
+            log.debug(f"Fetched and cached user {user_id}: {user.get('firstname', '')} {user.get('lastname', '')}")
+            return user
+        except Exception as e:
+            log.warning(f"Failed to fetch user {user_id}: {e}")
+            return {}
 
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
         """Fetches individual time entries from Zammad (not aggregated)."""
@@ -62,7 +97,7 @@ class ZammadConnector(BaseConnector):
                 org = await self.fetch_organization(ticket["organization_id"])
                 log.debug(f"Ticket {ticket['number']} belongs to org {org['name'] if org else 'none'}")
             
-            # Fetch customer user details
+            # Fetch customer user details (for user_emails and fallback org)
             customer_user = None
             if ticket.get("customer_id"):
                 try:
@@ -99,6 +134,23 @@ class ZammadConnector(BaseConnector):
                 # Extract date from created_at
                 entry_date = created_at.split("T")[0] if created_at else start_date
                 
+                # Convert created_at to local HTML5 for begin_time consistency with Kimai
+                begin_time_local = self._to_local_html5(created_at) if created_at else None
+                
+                # Fetch created_by user for agent details
+                created_by_id = entry.get("created_by_id")
+                user_name = None
+                user_email_agent = None
+                if created_by_id:
+                    created_by_user = await self._fetch_user(created_by_id)
+                    user_name = f"{created_by_user.get('firstname', '')} {created_by_user.get('lastname', '')}".strip()
+                    if not user_name:
+                        user_name = created_by_user.get('login', 'Unknown User')
+                    user_email_agent = created_by_user.get('email')
+                else:
+                    user_name = "Unknown User"
+                    user_email_agent = "unknown@zammad.com"
+                
                 # Get activity info
                 activity_id = entry.get("type_id")
                 activity_name = entry.get("type", {}).get("name") if isinstance(entry.get("type"), dict) else entry.get("type", "")
@@ -107,11 +159,6 @@ class ZammadConnector(BaseConnector):
                 description = entry.get("note", "").strip()
                 if not description:
                     description = f"Time tracking for ticket {ticket['number']}"
-                
-                # Determine user email
-                user_email = "unknown@zammad.com"
-                if customer_user and customer_user.get("email"):
-                    user_email = customer_user["email"]
                 
                 # Determine organization info
                 org_id = None
@@ -130,6 +177,18 @@ class ZammadConnector(BaseConnector):
                         pass
                 
                 duration_sec = int(float(time_value) * 60)
+                user_email = user_email_agent
+                user_emails_list = [user_email_agent] if user_email_agent != "unknown@zammad.com" else []
+                if customer_user and customer_user.get("email"):
+                    user_emails_list.append(customer_user["email"])
+                
+                # Calculate end_time
+                end_time_local = None
+                if begin_time_local and duration_sec > 0:
+                    begin_dt = datetime.fromisoformat(begin_time_local)
+                    end_dt = begin_dt + timedelta(seconds=duration_sec)
+                    end_time_local = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+                
                 normalized_entries.append(TimeEntryNormalized(
                     source_id=str(time_accounting_id),  # Individual time_accounting ID
                     source="zammad",
@@ -138,7 +197,7 @@ class ZammadConnector(BaseConnector):
                     ticket_title=ticket.get("title", ""),
                     org_id=org_id,
                     org_name=org_name,
-                    user_emails=[user_email] if user_email != "unknown@zammad.com" else [],
+                    user_emails=user_emails_list,
                     description=description,
                     duration_sec=duration_sec,
                     activity_type_id=activity_id,
@@ -149,14 +208,15 @@ class ZammadConnector(BaseConnector):
                     customer_name=None,
                     project_name=None,
                     user_email=user_email,
+                    user_name=user_name,
                     entry_date=entry_date,
-                    begin_time=None,
-                    end_time=None,
-                    created_at=created_at,  # Real timestamp from Zammad
+                    begin_time=begin_time_local,  # Local HTML5 for consistency
+                    end_time=end_time_local,
+                    created_at=created_at,  # Keep original ISO for logs
                     updated_at=updated_at,
                     tags=[]
                 ))
-                log.trace(f"Normalized time_accounting {time_accounting_id}: ticket {ticket['number']}, {time_value} min, created_at={created_at}")
+                log.trace(f"Normalized time_accounting {time_accounting_id}: ticket {ticket['number']}, {time_value} min, begin_time={begin_time_local}, user={user_name}")
 
         log.info(f"Total Zammad tickets processed: {len(tickets)}, total time accountings: {total_time_accountings}, normalized entries: {len(normalized_entries)}")
         return normalized_entries

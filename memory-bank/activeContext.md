@@ -39,6 +39,24 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
       - Ready for multi-customer, timestamp accuracy, and idempotency testing
     - **Compliance**: Maintains one-way sync contract, no migrations, production ready
 
+24. **Updated Tagging and Description Logic in Zammad→Kimai Sync (October 2025)**:
+    - **Changes**:
+      - Enhanced `normalize_zammad_entry` in `backend/app/services/normalizer.py` to include Zammad time_accounting ID (zid) in description: e.g., "Time on Ticket 50 (zid: 123)" for manual matching in Kimai.
+      - Confirmed "source:zammad" tag addition in `_create_timesheet` of `backend/app/services/sync_service.py` for origin identification; removed zid and ticket tags to strictly use only "source:zammad".
+      - Removed automatic "billed:{YYYY-MM}" tag appending in sync service to support manual billing tag addition in Kimai as per requirements.
+    - **Backend Files Modified**:
+      - `backend/app/services/normalizer.py`: Added zid to description and initial "source:zammad" tag (overridden by sync but consistent).
+      - `backend/app/services/sync_service.py`: Removed billed and other tags; tags now: ["source:zammad"]. Also removed tag-based idempotency check (duplicates prevented by ReconcilerService on ticket_id/date/duration).
+    - **Impact**:
+      - Improves traceability: zid in description aids manual review/matching.
+      - Ensures only "source:zammad" tag: No zid/ticket tags in new timesheets; existing ones retain old tags.
+      - Ensures no auto-billing: Billed tags must be added manually in Kimai timesheets.
+      - Maintains sync flow: Customer/project creation, timestamp handling unchanged; idempotency via reconciler.
+    - **Testing & Validation**:
+      - All Python syntax validated.
+      - Ready for manual sync test: New timesheets have only "source:zammad", description with zid, no duplicates/conflicts if reconciler matches properly.
+    - **Compliance**: Aligns with one-way sync; manual billing control; tag restriction.
+
 22. **Fixed Kimai API HTTP Redirect and Query Parameter Issues (October 2025)**:
     - **Problem**: Kimai API calls were failing with HTTP 301 redirects (http→https) and 400 errors due to invalid query parameters
     - **Root Causes**:
