@@ -129,6 +129,7 @@ class ZammadConnector(BaseConnector):
                     except Exception:
                         pass
                 
+                duration_sec = int(float(time_value) * 60)
                 normalized_entries.append(TimeEntryNormalized(
                     source_id=str(time_accounting_id),  # Individual time_accounting ID
                     source="zammad",
@@ -139,11 +140,18 @@ class ZammadConnector(BaseConnector):
                     org_name=org_name,
                     user_emails=[user_email] if user_email != "unknown@zammad.com" else [],
                     description=description,
-                    time_minutes=float(time_value),
+                    duration_sec=duration_sec,
                     activity_type_id=activity_id,
                     activity_name=activity_name,
+                    customer_id=None,
+                    project_id=None,
+                    activity_id=None,
+                    customer_name=None,
+                    project_name=None,
                     user_email=user_email,
                     entry_date=entry_date,
+                    begin_time=None,
+                    end_time=None,
                     created_at=created_at,  # Real timestamp from Zammad
                     updated_at=updated_at,
                     tags=[]
@@ -160,7 +168,7 @@ class ZammadConnector(BaseConnector):
             raise ValueError("Zammad time entry creation requires a ticket_id.")
 
         zammad_payload = {
-            "time_unit": time_entry.time_minutes,
+            "time_unit": time_entry.duration_sec / 60,
             "type": time_entry.activity_name, # Zammad often uses type name
             "ticket_id": time_entry.ticket_id,
         }
@@ -173,13 +181,20 @@ class ZammadConnector(BaseConnector):
         created_at_dt = datetime.fromisoformat(response_data.get("created_at").replace("Z", "+00:00"))
         updated_at_dt = datetime.fromisoformat(response_data.get("updated_at").replace("Z", "+00:00"))
 
+        duration_sec = int(float(response_data["time_unit"]) * 60)
         return TimeEntryNormalized(
             source_id=str(response_data["id"]),
             source="zammad",
             ticket_id=response_data["ticket_id"],
             description=time_entry.description, # Keep original description from TimeEntryNormalized
-            time_minutes=float(response_data["time_unit"]),
+            duration_sec=duration_sec,
+            activity_type_id=None,
             activity_name=response_data.get("type"), # Assuming 'type' is the activity name
+            customer_id=None,
+            project_id=None,
+            activity_id=None,
+            customer_name=None,
+            project_name=None,
             user_email=time_entry.user_email, # Zammad API might not return this directly
             entry_date=created_at_dt.strftime("%Y-%m-%d"),
             created_at=response_data["created_at"],
@@ -195,7 +210,7 @@ class ZammadConnector(BaseConnector):
             raise ValueError("Zammad time entry update requires ticket_id and source_id.")
         
         zammad_payload = {
-            "time_unit": time_entry.time_minutes,
+            "time_unit": time_entry.duration_sec / 60,
             "type": time_entry.activity_name, # Zammad often uses type name
         }
         # Similar to create, description updates might require different Zammad API calls.
@@ -203,13 +218,20 @@ class ZammadConnector(BaseConnector):
         response_data = await self._request("PUT", f"/api/v1/tickets/{time_entry.ticket_id}/time_accountings/{time_entry.source_id}", json=zammad_payload)
         updated_at_dt = datetime.fromisoformat(response_data.get("updated_at").replace("Z", "+00:00"))
 
+        duration_sec = int(float(response_data["time_unit"]) * 60)
         return TimeEntryNormalized(
             source_id=str(response_data["id"]),
             source="zammad",
             ticket_id=response_data["ticket_id"],
             description=time_entry.description, # Keep original description from TimeEntryNormalized
-            time_minutes=float(response_data["time_unit"]),
+            duration_sec=duration_sec,
+            activity_type_id=None,
             activity_name=response_data.get("type"),
+            customer_id=None,
+            project_id=None,
+            activity_id=None,
+            customer_name=None,
+            project_name=None,
             user_email=time_entry.user_email,
             entry_date=updated_at_dt.strftime("%Y-%m-%d"),
             created_at=response_data["created_at"],

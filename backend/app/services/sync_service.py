@@ -67,7 +67,7 @@ class SyncService:
             
             # Log each entry for debugging
             for entry in zammad_normalized_entries:
-                log.debug(f"Zammad entry {entry.source_id}: ticket {entry.ticket_number}, {entry.time_minutes} min, activity {entry.activity_type_id}")
+                log.debug(f"Zammad entry {entry.source_id}: ticket {entry.ticket_number}, {(entry.duration_sec // 60)} min, activity {entry.activity_type_id}")
 
             stats["zammad_fetched"] = len(zammad_normalized_entries)
             log.info(f"Fetched {len(zammad_normalized_entries)} normalized entries from Zammad.")
@@ -79,7 +79,7 @@ class SyncService:
             
             # Log each entry for debugging
             for entry in kimai_normalized_entries:
-                log.trace(f"Kimai entry {entry.source_id}: {entry.description or 'no desc'}, {entry.time_minutes} min")
+                log.trace(f"Kimai entry {entry.source_id}: {entry.description or 'no desc'}, {(entry.duration_sec // 60)} min")
 
             stats["kimai_fetched"] = len(kimai_normalized_entries)
             log.info(f"Fetched {len(kimai_normalized_entries)} normalized entries from Kimai.")
@@ -433,11 +433,11 @@ class SyncService:
         
         # Calculate end time
         begin_dt = datetime.fromisoformat(begin_local)
-        duration_seconds = int(round(zammad_entry.time_minutes * 60))
+        duration_seconds = zammad_entry.duration_sec
         end_dt = begin_dt + timedelta(seconds=duration_seconds)
         end_local = end_dt.strftime("%Y-%m-%dT%H:%M:%S")
         
-        log.trace(f"Timesheet times: begin={begin_local}, end={end_local}, duration={zammad_entry.time_minutes} min")
+        log.trace(f"Timesheet times: begin={begin_local}, end={end_local}, duration={(zammad_entry.duration_sec // 60)} min")
         
         # Build stable idempotency tag (canonical source ID)
         zid_tag = f"zid:{zammad_entry.source_id}"

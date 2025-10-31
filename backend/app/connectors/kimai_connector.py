@@ -241,7 +241,7 @@ class KimaiConnector(BaseConnector):
             duration_s = entry.get("duration")
             if duration_s is None:
                 duration_s = _seconds_from(begin_local, end_local)
-            time_minutes = round((duration_s or 0) / 60.0, 2)
+            duration_sec = int(duration_s or 0)
 
             # Kimai returns actual timestamps with full=true
             created_at = entry.get("begin")  # Use begin as created_at
@@ -271,7 +271,7 @@ class KimaiConnector(BaseConnector):
                 source="kimai",
                 source_id=str(entry.get("id")),
                 description=entry.get("description") or "",
-                time_minutes=float(time_minutes),
+                duration_sec=duration_sec,
                 activity_type_id=_id(raw_activity),
                 activity_name=None,   # can be hydrated later if needed
                 user_email=None,      # user email not in this payload; optional in model
@@ -288,7 +288,7 @@ class KimaiConnector(BaseConnector):
             log.debug(
                 f"Kimai normalized sample id={sample.source_id} "
                 f"begin={sample.created_at} end={sample.updated_at} "
-                f"time_minutes={sample.time_minutes} tags={sample.tags}"
+                f"duration_min={(sample.duration_sec // 60)} tags={sample.tags}"
             )
         log.info(f"Kimai fetch normalized {len(normalized)} entries ({params['begin']} → {params['end']}), tags included")
         return normalized
@@ -306,7 +306,7 @@ class KimaiConnector(BaseConnector):
         project_id = self.config.get("default_project_id", 1) # Placeholder: retrieve from config
 
         begin_dt = datetime.strptime(time_entry.entry_date, '%Y-%m-%d')
-        end_dt = begin_dt + timedelta(minutes=time_entry.time_minutes)
+        end_dt = begin_dt + timedelta(seconds=time_entry.duration_sec)
 
         kimai_payload = {
             "project": project_id,
@@ -325,7 +325,7 @@ class KimaiConnector(BaseConnector):
         updated_at_dt = datetime.fromisoformat(response_data.get("updatedAt"))
         begin_kimai_dt = datetime.fromisoformat(response_data["begin"])
         end_kimai_dt = datetime.fromisoformat(response_data["end"])
-        duration_minutes = (end_kimai_dt - begin_kimai_dt).total_seconds() / 60
+        duration_sec = int((end_kimai_dt - begin_kimai_dt).total_seconds())
 
         return TimeEntryNormalized(
             source_id=str(response_data["id"]),
@@ -333,7 +333,7 @@ class KimaiConnector(BaseConnector):
             ticket_number=time_entry.ticket_number,
             ticket_id=time_entry.ticket_id,
             description=response_data.get("description", ""),
-            time_minutes=duration_minutes,
+            duration_sec=duration_sec,
             activity_type_id=response_data["activity"]["id"],
             activity_name=response_data["activity"]["name"],
             user_email=response_data["user"]["email"],
@@ -350,7 +350,7 @@ class KimaiConnector(BaseConnector):
             raise ValueError("Kimai time entry update requires source_id and activity_type_id.")
 
         begin_dt = datetime.strptime(time_entry.entry_date, '%Y-%m-%d')
-        end_dt = begin_dt + timedelta(minutes=time_entry.time_minutes)
+        end_dt = begin_dt + timedelta(seconds=time_entry.duration_sec)
 
         kimai_payload = {
             "activity": time_entry.activity_type_id,
@@ -366,7 +366,7 @@ class KimaiConnector(BaseConnector):
         updated_at_dt = datetime.fromisoformat(response_data.get("updatedAt"))
         begin_kimai_dt = datetime.fromisoformat(response_data["begin"])
         end_kimai_dt = datetime.fromisoformat(response_data["end"])
-        duration_minutes = (end_kimai_dt - begin_kimai_dt).total_seconds() / 60
+        duration_sec = int((end_kimai_dt - begin_kimai_dt).total_seconds())
 
         return TimeEntryNormalized(
             source_id=str(response_data["id"]),
@@ -374,7 +374,7 @@ class KimaiConnector(BaseConnector):
             ticket_number=time_entry.ticket_number,
             ticket_id=time_entry.ticket_id,
             description=response_data.get("description", ""),
-            time_minutes=duration_minutes,
+            duration_sec=duration_sec,
             activity_type_id=response_data["activity"]["id"],
             activity_name=response_data["activity"]["name"],
             user_email=response_data["user"]["email"],

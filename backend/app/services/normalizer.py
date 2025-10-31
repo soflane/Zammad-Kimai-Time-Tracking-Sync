@@ -29,24 +29,25 @@ class NormalizerService:
         created_at_dt = datetime.fromisoformat(zammad_data["created_at"].replace("Z", "+00:00"))
         updated_at_dt = datetime.fromisoformat(zammad_data["updated_at"].replace("Z", "+00:00"))
 
+        duration_sec = int(float(zammad_data.get("time_unit", 0)) * 60)
         return TimeEntryNormalized(
             source_id=str(zammad_data["id"]),
             source="zammad",
             ticket_id=zammad_data.get("ticket_id"),
-            # Placeholder for ticket_number and description - Zammad time_accountings themselves don't have this.
-            # Would need to fetch ticket details or article details.
             ticket_number=None,
-            description=f"Time on Ticket {zammad_data.get('ticket_id')}", # Generic description
-            time_minutes=float(zammad_data["time_unit"]),
-            # Placeholder for activity_type_id and activity_name - needs Zammad API lookup
+            description=f"Time on Ticket {zammad_data.get('ticket_id')}",
+            duration_sec=duration_sec,
+            begin_time=None,
+            end_time=None,
             activity_type_id=zammad_data.get("type_id"),
             activity_name=None,
-            # Placeholder for user_email - needs Zammad API lookup for created_by_id
             user_email="unknown@example.com",
             entry_date=created_at_dt.strftime("%Y-%m-%d"),
             created_at=zammad_data["created_at"],
             updated_at=zammad_data["updated_at"],
-            tags=[] # Zammad time accountings do not typically have tags directly
+            tags=[],
+            customer_name=None,
+            project_name=None
         )
 
     def normalize_kimai_entry(self, kimai_data: dict) -> TimeEntryNormalized:
@@ -58,22 +59,28 @@ class NormalizerService:
 
         begin_datetime = datetime.fromisoformat(kimai_data["begin"])
         end_datetime = datetime.fromisoformat(kimai_data["end"])
-        duration_minutes = (end_datetime - begin_datetime).total_seconds() / 60
+        duration_sec = int((end_datetime - begin_datetime).total_seconds())
+        if "duration" in kimai_data and kimai_data["duration"] > 0:
+            duration_sec = int(kimai_data["duration"])
+        begin_time = kimai_data["begin"]
+        end_time = kimai_data["end"]
 
         return TimeEntryNormalized(
             source_id=str(kimai_data["id"]),
             source="kimai",
-            # Kimai doesn't inherently have ticket_number/ticket_id fields.
-            # Could parse from description or tags if a convention is used.
             ticket_number=None,
             ticket_id=None,
             description=kimai_data.get("description", ""),
-            time_minutes=duration_minutes,
+            duration_sec=duration_sec,
+            begin_time=begin_time,
+            end_time=end_time,
             activity_type_id=kimai_data["activity"]["id"],
             activity_name=kimai_data["activity"]["name"],
             user_email=kimai_data["user"]["email"],
             entry_date=begin_datetime.strftime("%Y-%m-%d"),
             created_at=kimai_data["createdAt"],
             updated_at=kimai_data["updatedAt"],
-            tags=kimai_data.get("tags", [])
+            tags=kimai_data.get("tags", []),
+            customer_name=None,
+            project_name=None
         )
