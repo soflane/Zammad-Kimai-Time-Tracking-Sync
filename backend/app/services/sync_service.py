@@ -443,13 +443,14 @@ class SyncService:
         ticket_id = zammad_entry.ticket_id
         zid = zammad_entry.source_id
         ticket_ref = zammad_entry.ticket_number or f"#{ticket_id}"
-        customer_name = self._determine_customer_name(zammad_entry)
+        customer_full_name = zammad_entry.customer_name or "Unknown Customer"
         org_name = zammad_entry.org_name
         title_part = zammad_entry.ticket_title or ""
-        description = f"Ticket-{ticket_ref}\nZammad Ticket ID: {ticket_id}\nTime Accounting ID: {zid}\nCustomer: {customer_name}\n"
+        description = f"Ticket-{ticket_ref}\nZammad Ticket ID: {ticket_id}\nTime Accounting ID: {zid}\nCustomer: {customer_full_name}"
         if org_name:
-            description += f"Organization: {org_name}\n"
-        description += f"Title: {title_part}"
+            description += f"\nOrganization: {org_name}"
+        if title_part:
+            description += f"\nTitle: {title_part}"
         
         if len(description) > 500:
             description = description[:497] + "..."

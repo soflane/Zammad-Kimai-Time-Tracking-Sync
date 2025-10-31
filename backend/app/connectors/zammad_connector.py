@@ -182,6 +182,16 @@ class ZammadConnector(BaseConnector):
                 if customer_user and customer_user.get("email"):
                     user_emails_list.append(customer_user["email"])
                 
+                # Set customer_name from customer user full name
+                customer_full_name = None
+                if customer_user:
+                    customer_first = customer_user.get('firstname', '').strip()
+                    customer_last = customer_user.get('lastname', '').strip()
+                    if customer_first or customer_last:
+                        customer_full_name = f"{customer_first} {customer_last}".strip()
+                        if not customer_full_name:
+                            customer_full_name = customer_user.get('login', 'Unknown Customer')
+                
                 # Calculate end_time
                 end_time_local = None
                 if begin_time_local and duration_sec > 0:
@@ -205,7 +215,7 @@ class ZammadConnector(BaseConnector):
                     customer_id=None,
                     project_id=None,
                     activity_id=None,
-                    customer_name=None,
+                    customer_name=customer_full_name,
                     project_name=None,
                     user_email=user_email,
                     user_name=user_name,
