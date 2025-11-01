@@ -14,3 +14,4 @@ class SyncResponse(BaseModel):
     num_processed: int = 0
     num_created: int = 0
     num_conflicts: int = 0
+    num_skipped: int = 0

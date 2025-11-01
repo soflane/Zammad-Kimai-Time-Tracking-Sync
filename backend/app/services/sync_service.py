@@ -52,6 +52,7 @@ class SyncService:
                 "processed": 0,
                 "created": 0,
                 "conflicts": 0,
+                "skipped": 0,
                 "zammad_fetched": 0,
                 "kimai_fetched": 0,
                 "reconciled_matches": 0,
@@ -111,7 +112,8 @@ class SyncService:
                 log.debug(f"Processing reconciled entry: {reconciled_entry.reconciliation_status}")
                 stats["processed"] += 1
                 if reconciled_entry.reconciliation_status == ReconciliationStatus.MATCH:
-                    log.debug(f"MATCH: Zammad {reconciled_entry.zammad_entry.source_id} & Kimai {reconciled_entry.kimai_entry.source_id} are in sync.")
+                    log.info(f"Skipped: Time entry already synced (Zammad ID: {reconciled_entry.zammad_entry.source_id}, Kimai ID: {reconciled_entry.kimai_entry.source_id})")
+                    stats["skipped"] += 1
                     # Future: Update our DB with association or latest state
                 elif reconciled_entry.reconciliation_status == ReconciliationStatus.MISSING_IN_KIMAI:
                     log.debug(f"MISSING IN KIMAI: Zammad entry {reconciled_entry.zammad_entry.source_id} not found in Kimai. Attempting creation...")
@@ -142,63 +144,59 @@ class SyncService:
                             kimai_activity_id = int(default_activity_id)  # Ensure it's an integer
                             log.info(f"Using default Kimai activity {kimai_activity_id} for unmapped Zammad activity {zammad_entry.activity_type_id}")
                         else:
-                            log.warning(f"No mapping for activity_type_id {zammad_entry.activity_type_id} and no default_activity_id configured.")
-                            log.warning(f"To fix: Go to Connectors page → Edit Kimai connector → Add 'default_activity_id' field with a valid Kimai activity ID (e.g., 1)")
-                            conflict_data = ConflictCreate(
-                                conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
-                                zammad_data=zammad_entry.model_dump(),
-                                kimai_data=None,
-                                notes=f"Unmapped activity type {zammad_entry.activity_type_id}; configure mapping or set default_activity_id in Kimai connector settings"
-                            )
-                            db_conflict = DBConflict(**conflict_data.model_dump())
-                            self.db.add(db_conflict)
-                            self.db.commit()
-                            self.db.refresh(db_conflict)
-                            stats["conflicts"] += 1
+                            log.info(f"Skipped: Time entry skipped (no activity mapping for activity_type_id {zammad_entry.activity_type_id})")
+                            log.debug(f"To fix: Go to Connectors page → Edit Kimai connector → Add 'default_activity_id' field with a valid Kimai activity ID (e.g., 1) or create an activity mapping")
+                            stats["skipped"] += 1
                             stats["unmapped"] += 1
-                            log.info(f"Logged unmapped conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
                             continue
                     
                     # Proceed with creation using determined activity ID
                     try:
-                            # Step 1: Determine customer name
-                            log.debug(f"Determining customer for Zammad entry {zammad_entry.source_id}")
-                            customer_name = self._determine_customer_name(zammad_entry)
-                            log.info(f"Customer name determined: {customer_name}")
-                            
-                            # Step 2: Find or create customer
-                            log.debug(f"Ensuring customer '{customer_name}' exists in Kimai")
-                            customer = await self._ensure_customer(zammad_entry, customer_name)
-                            log.info(f"Customer ensured: {customer['name']} (ID: {customer['id']})")
-                            
-                            # Step 3: Find or create project for this ticket
-                            log.debug(f"Ensuring project for ticket {zammad_entry.ticket_id}")
-                            project = await self._ensure_project(zammad_entry, customer['id'])
-                            log.info(f"Project ensured: {project['name']} (ID: {project['id']})")
-                            
-                            # Step 4: Create timesheet with proper formatting
-                            log.debug(f"Creating timesheet for Zammad entry {zammad_entry.source_id}")
-                            timesheet = await self._create_timesheet(zammad_entry, project['id'], kimai_activity_id)
+                        # Step 1: Determine customer name
+                        log.debug(f"Determining customer for Zammad entry {zammad_entry.source_id}")
+                        customer_name = self._determine_customer_name(zammad_entry)
+                        log.info(f"Customer name determined: {customer_name}")
+                        
+                        # Step 2: Find or create customer
+                        log.debug(f"Ensuring customer '{customer_name}' exists in Kimai")
+                        customer = await self._ensure_customer(zammad_entry, customer_name)
+                        log.info(f"Customer ensured: {customer['name']} (ID: {customer['id']})")
+                        
+                        # Step 3: Find or create project for this ticket
+                        log.debug(f"Ensuring project for ticket {zammad_entry.ticket_id}")
+                        project = await self._ensure_project(zammad_entry, customer['id'])
+                        log.info(f"Project ensured: {project['name']} (ID: {project['id']})")
+                        
+                        # Step 4: Create timesheet with proper formatting
+                        log.debug(f"Creating timesheet for Zammad entry {zammad_entry.source_id}")
+                        timesheet = await self._create_timesheet(zammad_entry, project['id'], kimai_activity_id)
+                        if timesheet.get("status") == "exists":
+                            log.info(f"Skipped: Time entry already synced via marker (Zammad ID: {zammad_entry.source_id}, Kimai ID: {timesheet['id']})")
+                            stats["skipped"] += 1
+                        elif timesheet.get("status") == "conflict":
+                            log.info(f"Skipped: Time entry already synced but differs via marker (Zammad ID: {zammad_entry.source_id}, Kimai ID: {timesheet['id']})")
+                            stats["skipped"] += 1
+                        else:
                             log.info(f"Successfully created Kimai timesheet: {timesheet.get('id')}")
                             stats["created"] += 1
-                            # Future: Store linkage in our database
-                            
+                        # Future: Store linkage in our database
+                        
                     except ValueError as e:
-                            log.error(f"Failed to create Kimai entry for Zammad {zammad_entry.source_id}: {e}")
-                            log.debug(f"ValueError details: {str(e)}")
-                            # Store as conflict
-                            conflict_data = ConflictCreate(
-                                conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
-                                zammad_data=zammad_entry.model_dump(),
-                                kimai_data=None,
-                                notes=f"Failed to create Kimai entry: {str(e)}"
-                            )
-                            db_conflict = DBConflict(**conflict_data.model_dump())
-                            self.db.add(db_conflict)
-                            self.db.commit()
-                            self.db.refresh(db_conflict)
-                            stats["conflicts"] += 1
-                            log.info(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
+                        log.error(f"Failed to create Kimai entry for Zammad {zammad_entry.source_id}: {e}")
+                        log.debug(f"ValueError details: {str(e)}")
+                        # Store as conflict
+                        conflict_data = ConflictCreate(
+                            conflict_type=ReconciliationStatus.MISSING_IN_KIMAI,
+                            zammad_data=zammad_entry.model_dump(),
+                            kimai_data=None,
+                            notes=f"Failed to create Kimai entry: {str(e)}"
+                        )
+                        db_conflict = DBConflict(**conflict_data.model_dump())
+                        self.db.add(db_conflict)
+                        self.db.commit()
+                        self.db.refresh(db_conflict)
+                        stats["conflicts"] += 1
+                        log.info(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
                     except Exception as e:
                         log.error(f"Unexpected error creating Kimai entry for Zammad {zammad_entry.source_id}: {e}")
                         log.error(f"Stack trace: {traceback.format_exc()}")
@@ -216,7 +214,7 @@ class SyncService:
                         log.info(f"Logged conflict for Zammad {zammad_entry.source_id} (ID: {db_conflict.id})")
 
                 elif reconciled_entry.reconciliation_status == ReconciliationStatus.CONFLICT:
-                    log.warning(f"CONFLICT: Zammad {reconciled_entry.zammad_entry.source_id} and Kimai {reconciled_entry.kimai_entry.source_id} differ. Logging conflict...")
+                    log.info(f"Skipped: Time entry already synced but differs (Zammad ID: {reconciled_entry.zammad_entry.source_id}, Kimai ID: {reconciled_entry.kimai_entry.source_id})")
                     log.debug(f"Conflict details: Zammad={reconciled_entry.zammad_entry.model_dump()}, Kimai={reconciled_entry.kimai_entry.model_dump()}")
                     conflict_data = ConflictCreate(
                         conflict_type=ReconciliationStatus.CONFLICT,
@@ -229,13 +227,14 @@ class SyncService:
                     self.db.commit()
                     self.db.refresh(db_conflict)
                     stats["conflicts"] += 1
+                    stats["skipped"] += 1
                     log.info(f"Logged conflict (ID: {db_conflict.id})")
 
                 elif reconciled_entry.reconciliation_status == ReconciliationStatus.MISSING_IN_ZAMMAD:
                     log.debug(f"MISSING IN ZAMMAD (Kimai only): Kimai entry {reconciled_entry.kimai_entry.source_id} not found in Zammad. (Ignored for Zammad->Kimai sync)")
 
             # Final stats
-            log.info(f"=== Sync complete: processed={stats['processed']}, created={stats['created']}, conflicts={stats['conflicts']} ===")
+            log.info(f"=== Sync complete: processed={stats['processed']}, created={stats['created']}, skipped={stats['skipped']}, conflicts={stats['conflicts']} ===")
             return stats
 
         except Exception as e:
@@ -513,12 +512,10 @@ class SyncService:
                     activity_matches = (ts.activity_type_id == activity_id)
                     
                     if duration_matches and activity_matches:
-                        log.info(f"Existing timesheet is identical, skipping creation (no duplicate)")
                         # Return a pseudo-response to indicate success without creation
                         return {
                             "id": ts.source_id,
-                            "status": "exists",
-                            "message": "Timesheet already exists with same marker and values"
+                            "status": "exists"
                         }
                     else:
                         # Values differ - this is a conflict
@@ -530,8 +527,7 @@ class SyncService:
                         # Could update here or flag as conflict - for now, skip and log
                         return {
                             "id": ts.source_id,
-                            "status": "conflict",
-                            "message": "Timesheet exists but values differ"
+                            "status": "conflict"
                         }
             
             log.debug(f"No existing timesheet found with marker '{marker}', proceeding with creation")

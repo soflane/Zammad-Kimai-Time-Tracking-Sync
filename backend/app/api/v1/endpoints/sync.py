@@ -79,7 +79,7 @@ async def run_sync(
     try:
         log.info(f"Starting sync process for period {start_d} to {end_d}")
         stats = await sync_service.sync_time_entries(start_d, end_d)
-        log.info(f"Sync completed successfully: processed={stats['processed']}, created={stats['created']}, conflicts={stats['conflicts']}")
+        log.info(f"Sync completed successfully: processed={stats['processed']}, created={stats['created']}, skipped={stats['skipped']}, conflicts={stats['conflicts']}")
         return SyncResponse(
             status="success",
             message=f"Sync completed for {start_d} to {end_d}",
@@ -87,6 +87,7 @@ async def run_sync(
             end_date=end_d,
             num_processed=stats["processed"],
             num_created=stats["created"],
+            num_skipped=stats["skipped"],
             num_conflicts=stats["conflicts"]
         )
     except ValueError as ve:
