@@ -78,6 +78,16 @@ class ZammadConnector(BaseConnector):
             log.warning(f"Failed to fetch user {user_id}: {e}")
             return {}
 
+    async def _fetch_article(self, article_id: int) -> Optional[Dict[str, Any]]:
+        """Fetches article details by ID for timestamp extraction."""
+        try:
+            article = await self._request("GET", f"/api/v1/ticket_articles/{article_id}")
+            log.debug(f"Fetched article {article_id}: created_at={article.get('created_at')}")
+            return article
+        except Exception as e:
+            log.warning(f"Failed to fetch article {article_id}: {e}")
+            return None
+
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
         """Fetches individual time entries from Zammad (not aggregated)."""
         log.info(f"Fetching Zammad time entries for date range: {start_date} to {end_date}")
@@ -127,8 +137,21 @@ class ZammadConnector(BaseConnector):
                     log.warning(f"Time accounting missing ID, skipping: {entry}")
                     continue
                 
-                # Preserve the real created_at timestamp (this is the actual work time)
-                created_at = entry.get("created_at")
+                # Preferred: Use article timestamp if available (more accurate work time)
+                # Fallback: Use time_accounting created_at
+                article_id = entry.get("ticket_article_id")
+                if article_id:
+                    article = await self._fetch_article(article_id)
+                    if article and article.get("created_at"):
+                        created_at = article["created_at"]
+                        log.debug(f"Using article {article_id} timestamp for time_accounting {time_accounting_id}: {created_at}")
+                    else:
+                        created_at = entry.get("created_at")
+                        log.debug(f"Article {article_id} not found or no timestamp, using time_accounting created_at")
+                else:
+                    created_at = entry.get("created_at")
+                    log.trace(f"No article_id for time_accounting {time_accounting_id}, using time_accounting created_at")
+                
                 updated_at = entry.get("updated_at", created_at)
                 
                 # Extract date from created_at

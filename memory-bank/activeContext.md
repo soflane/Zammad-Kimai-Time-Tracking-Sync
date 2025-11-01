@@ -1,9 +1,49 @@
 # Active Context
 
 ## Current Focus
-Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented.
+Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented. **Latest: Enhanced sync with marker-based idempotency, article timestamps, and improved duplicate prevention (January 2025).**
 
 ## Recent Actions (Most Recent First)
+1. **Enhanced Zammad→Kimai Sync with Marker-Based Idempotency (January 2025)**:
+   - **Problems Solved**:
+     1. Duplicate timesheet creation on multiple sync runs
+     2. Loss of precision in timestamps (not using article timestamps)
+     3. Difficulty tracking Zammad source in Kimai
+   - **Zammad Connector Enhancements** (`backend/app/connectors/zammad_connector.py`):
+     - Added `_fetch_article()` method to retrieve article details
+     - **Preferred timestamp source**: Uses `ticket_article.created_at` when `ticket_article_id` present
+     - **Fallback**: Uses `time_accounting.created_at` if no article
+     - More accurate work time tracking (article timestamp = when work actually started)
+   - **Sync Service Improvements** (`backend/app/services/sync_service.py`):
+     - **Marker System**: Canonical identity `ZAM:T{ticket_id}|TA:{time_accounting_id}` at start of description
+     - **Idempotent Upsert**: Before creating, searches existing timesheets for matching marker
+       - If found with same values → skip (no duplicate)
+       - If found with different values → log conflict, skip update
+       - If not found → create new timesheet
+     - **Description Format**: 
+       ```
+       ZAM:T{ticket_id}|TA:{time_accounting_id}
+       Ticket-{number}
+       Zammad Ticket ID: {id}
+       Time Accounting ID: {id}
+       Customer: {name} - {organization}
+       Title: {title}
+       ```
+     - **Project Descriptions**: Include Zammad ticket URL (`{base_url}/#ticket/zoom/{ticket_id}`)
+     - **Multi-tenant Safety**: Each entry resolves customer/project independently (no global caching)
+     - **Real Timestamps**: Uses actual `created_at` from Zammad (article or time_accounting)
+       - Converts to local timezone (Europe/Brussels) in HTML5 format
+       - Calculates `end` time = `begin` + `duration_sec`
+       - No more default 09:00 timestamps
+   - **Key Benefits**:
+     - ✅ Running sync multiple times won't create duplicates
+     - ✅ Accurate work timestamps from Zammad
+     - ✅ Every customer/organization/ticket handled correctly
+     - ✅ Easy reconciliation via marker in description
+     - ✅ Conflict detection for same marker with different values
+   - **Testing**: Ready for validation with live sync runs
+   - **Compliance**: Maintains one-way sync, no breaking changes to existing data
+
 23. **Fixed Zammad→Kimai Sync Issues (October 2025)**:
     - **Problems Fixed**:
       1. Multi-customer sync stuck to first partial match

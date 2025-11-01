@@ -311,11 +311,26 @@ class SyncService:
             "visible": True
         }
         
-        # Add email if available
-        if hasattr(zammad_entry, 'user_email') and zammad_entry.user_email:
-            customer_payload["email"] = zammad_entry.user_email
-        elif hasattr(zammad_entry, 'user_emails') and zammad_entry.user_emails and len(zammad_entry.user_emails) > 0:
-            customer_payload["email"] = zammad_entry.user_emails[0]
+        # Add email based on customer type
+        if hasattr(zammad_entry, 'org_id') and zammad_entry.org_id:
+            # Organization customer - fetch contact_email custom field
+            org_response = await self.zammad_connector.fetch_organization(zammad_entry.org_id)
+            if org_response and org_response.get('contact_email'):
+                customer_email = org_response['contact_email']
+                customer_payload["email"] = customer_email
+                log.debug(f"Using organization contact_email: {customer_email}")
+            else:
+                # Fallback to dummy email
+                customer_payload["email"] = f"org-{zammad_entry.org_id}@zammad.local"
+                log.debug(f"Using dummy email for organization customer (no contact_email): {customer_payload['email']}")
+        elif hasattr(zammad_entry, 'user_emails') and zammad_entry.user_emails and len(zammad_entry.user_emails) > 1:
+            # Individual customer - use ticket customer email (second in list, first is agent)
+            customer_payload["email"] = zammad_entry.user_emails[1]
+            log.debug(f"Using ticket customer email: {customer_payload['email']}")
+        else:
+            # Fallback - use dummy email
+            customer_payload["email"] = f"customer-{zammad_entry.ticket_id}@zammad.local"
+            log.debug(f"Using fallback dummy email: {customer_payload['email']}")
         
         log.debug(f"Customer payload: {customer_payload}")
         
@@ -362,10 +377,15 @@ class SyncService:
         project_name = f"Ticket-{ticket_number}"
         log.debug(f"Project name: {project_name}")
         
+        # Build Zammad ticket URL for project description
+        zammad_base_url = self.zammad_connector.base_url.rstrip('/')
+        ticket_url = f"{zammad_base_url}/#ticket/zoom/{zammad_entry.ticket_id}"
+        
         # Include globalActivities in creation payload
         project_payload = {
             "name": project_name,
             "customer": int(customer_id),  # Ensure it's an integer
+            "comment": ticket_url,  # Add Zammad URL to project description
             "visible": True,
             "globalActivities": True  # Enable global activities from the start
         }
@@ -407,7 +427,8 @@ class SyncService:
         activity_id: int
     ) -> Dict[str, Any]:
         """
-        Creates a timesheet in Kimai with proper timestamp handling and idempotency.
+        Creates a timesheet in Kimai with proper timestamp handling and idempotent upsert.
+        Checks for existing timesheet with same marker before creating.
         """
         log.debug(f"Creating timesheet for Zammad entry {zammad_entry.source_id}, project {project_id}, activity {activity_id}")
         
@@ -439,33 +460,89 @@ class SyncService:
         
         log.trace(f"Timesheet times: begin={begin_local}, end={end_local}, duration={(zammad_entry.duration_sec // 60)} min")
         
-        # Build standardized description template
+        # Build identity marker (canonical, unique identifier)
         ticket_id = zammad_entry.ticket_id
-        zid = zammad_entry.source_id
+        time_accounting_id = zammad_entry.source_id
+        marker = f"ZAM:T{ticket_id}|TA:{time_accounting_id}"
+        
+        # Build standardized description with marker at the beginning
         ticket_ref = zammad_entry.ticket_number or f"#{ticket_id}"
         customer_full_name = zammad_entry.customer_name or "Unknown Customer"
-        org_name = zammad_entry.org_name
+        org_name = zammad_entry.org_name or "-"
         title_part = zammad_entry.ticket_title or ""
-        description = f"Ticket-{ticket_ref}\nZammad Ticket ID: {ticket_id}\nTime Accounting ID: {zid}\nCustomer: {customer_full_name}"
-        if org_name:
-            description += f"\nOrganization: {org_name}"
+        
+        description = f"{marker}\n"
+        description += f"Ticket-{ticket_ref}\n"
+        description += f"Zammad Ticket ID: {ticket_id}\n"
+        description += f"Time Accounting ID: {time_accounting_id}\n"
+        description += f"Customer: {customer_full_name} - {org_name}\n"
         if title_part:
-            description += f"\nTitle: {title_part}"
+            description += f"Title: {title_part}\n"
         
         if len(description) > 500:
             description = description[:497] + "..."
         
-        log.debug(f"Built description for {zammad_entry.source_id}: {description[:100]}...")
+        log.debug(f"Built description with marker: {marker}")
         
-        # Build tags with new canonical format - only source:zammad as required
-        tags = [
-            "source:zammad"
-        ]
+        # IDEMPOTENT UPSERT: Check for existing timesheet with same marker
+        # Search within a reasonable date window (±7 days from entry date)
+        entry_date_dt = datetime.strptime(zammad_entry.entry_date, '%Y-%m-%d')
+        search_begin = (entry_date_dt - timedelta(days=7)).strftime("%Y-%m-%dT00:00:00")
+        search_end = (entry_date_dt + timedelta(days=7)).strftime("%Y-%m-%dT23:59:59")
+        
+        log.debug(f"Checking for existing timesheet with marker '{marker}' in range {search_begin} to {search_end}")
+        
+        try:
+            # Fetch timesheets in the date window for this project
+            existing_timesheets = await self.kimai_connector.fetch_time_entries(
+                search_begin.split('T')[0], 
+                search_end.split('T')[0]
+            )
+            
+            # Filter by project and scan for marker in description
+            for ts in existing_timesheets:
+                ts_description = ts.description or ""
+                ts_first_line = ts_description.split('\n')[0] if ts_description else ""
+                
+                # Check if first line matches our marker exactly
+                if ts_first_line == marker:
+                    log.info(f"Found existing timesheet with marker '{marker}': Kimai ID {ts.source_id}")
+                    
+                    # Compare current values with what we would create
+                    duration_matches = abs(ts.duration_sec - duration_seconds) < 60  # Within 1 minute
+                    activity_matches = (ts.activity_type_id == activity_id)
+                    
+                    if duration_matches and activity_matches:
+                        log.info(f"Existing timesheet is identical, skipping creation (no duplicate)")
+                        # Return a pseudo-response to indicate success without creation
+                        return {
+                            "id": ts.source_id,
+                            "status": "exists",
+                            "message": "Timesheet already exists with same marker and values"
+                        }
+                    else:
+                        # Values differ - this is a conflict
+                        log.warning(
+                            f"Existing timesheet with marker '{marker}' has different values: "
+                            f"duration {ts.duration_sec}s (expected {duration_seconds}s), "
+                            f"activity {ts.activity_type_id} (expected {activity_id})"
+                        )
+                        # Could update here or flag as conflict - for now, skip and log
+                        return {
+                            "id": ts.source_id,
+                            "status": "conflict",
+                            "message": "Timesheet exists but values differ"
+                        }
+            
+            log.debug(f"No existing timesheet found with marker '{marker}', proceeding with creation")
+            
+        except Exception as e:
+            log.warning(f"Error checking for existing timesheet: {e}, proceeding with creation anyway")
+        
+        # Build tags - only source:zammad as required
+        tags = ["source:zammad"]
         
         log.debug(f"Timesheet tags: {tags}")
-        
-        # Note: Idempotency now relies on ReconcilerService matching (ticket_id, date, duration);
-        # tag-based check removed to comply with "only source:zammad" requirement
         
         # Build timesheet payload
         timesheet_payload = {
@@ -477,11 +554,11 @@ class SyncService:
             "tags": ",".join(tags)
         }
         
-        log.debug(f"Creating timesheet with payload: {timesheet_payload}")
+        log.debug(f"Creating timesheet with payload (marker: {marker})")
         
         try:
             timesheet = await self.kimai_connector.create_timesheet(timesheet_payload)
-            log.info(f"Created Kimai timesheet ID {timesheet.get('id')} for Zammad entry {zammad_entry.source_id}")
+            log.info(f"Created Kimai timesheet ID {timesheet.get('id')} for Zammad entry {time_accounting_id} (marker: {marker})")
             return timesheet
         except ValueError as ve:
             log.error(f"ValueError creating timesheet: {str(ve)}")
