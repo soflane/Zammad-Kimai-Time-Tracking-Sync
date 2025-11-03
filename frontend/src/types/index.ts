@@ -102,16 +102,31 @@ export interface TimeEntry {
 
 export interface Conflict {
   id: number
-  source_entry_id: string
-  target_entry_id?: string
   conflict_type: string
-  conflict_data: Record<string, any>
-  resolution_status: 'pending' | 'resolved' | 'ignored'
+  zammad_data: any
+  kimai_data: any
+  resolution_status: string
+  resolution_action?: string
   resolved_at?: string
-  resolved_by?: number
+  resolved_by?: string
+  notes?: string
   time_entry_id?: number
-  created_at: string
-  updated_at: string
+  created_at?: string
+
+  // Rich metadata
+  reason_code?: string
+  reason_detail?: string
+  customer_name?: string
+  project_name?: string
+  activity_name?: string
+  ticket_number?: string
+  zammad_created_at?: string
+  zammad_entry_date?: string
+  zammad_time_minutes?: number
+  kimai_begin?: string
+  kimai_end?: string
+  kimai_duration_minutes?: number
+  kimai_id?: number
 }
 
 export interface ConflictUpdate {

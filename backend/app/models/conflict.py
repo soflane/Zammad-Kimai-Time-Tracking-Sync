@@ -1,6 +1,6 @@
 """Conflict model for tracking reconciliation conflicts."""
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Index
+from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey, Index, Float, Date
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -21,6 +21,22 @@ class Conflict(Base):
     conflict_type = Column(String(50), nullable=False, index=True)  # 'duplicate', 'mismatch', 'missing'
     zammad_data = Column(JSONB, nullable=True)  # Original Zammad data
     kimai_data = Column(JSONB, nullable=True)  # Existing Kimai data (if any)
+
+    # Rich conflict metadata
+    reason_code = Column(String(50), nullable=False, default='OTHER', index=True)
+    reason_detail = Column(Text, nullable=True)
+
+    customer_name = Column(Text, nullable=True)
+    project_name = Column(Text, nullable=True)
+    activity_name = Column(Text, nullable=True)
+    ticket_number = Column(Text, nullable=True)
+    zammad_created_at = Column(DateTime(timezone=True), nullable=True)
+    zammad_entry_date = Column(Date, nullable=True)
+    zammad_time_minutes = Column(Float, nullable=True)
+    kimai_begin = Column(DateTime(timezone=True), nullable=True)
+    kimai_end = Column(DateTime(timezone=True), nullable=True)
+    kimai_duration_minutes = Column(Float, nullable=True)
+    kimai_id = Column(Integer, nullable=True)
     
     # Resolution
     resolution_status = Column(String(50), default='pending', nullable=False, index=True)  # 'pending', 'resolved', 'ignored'
@@ -37,6 +53,7 @@ class Conflict(Base):
 
     __table_args__ = (
         Index('idx_conflicts_resolution_status', 'resolution_status'),
+        Index('idx_conflicts_reason_code', 'reason_code'),
     )
 
     def __repr__(self):
