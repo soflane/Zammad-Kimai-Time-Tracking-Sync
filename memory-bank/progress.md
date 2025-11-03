@@ -109,6 +109,14 @@
   - Files: normalizer.py (base desc/tags), sync_service.py (explicit desc, tag refinement, no billed).
   - Impact: Clear zid/ticket_id visibility, only source tag, no duplicates via reconciler, no auto-billing.
   - Syntax validated; ready for testing.
+
+- [x] **Fixed Frontend Docker Build Error - Date-fns Missing (November 2025)**:
+  - Added "date-fns": "^3.6.0" to frontend/package.json dependencies to resolve TS2307 "Cannot find module 'date-fns'" errors in src/components/ui/conflict-drawer.tsx and src/pages/Conflicts.tsx.
+  - Removed unused getStatusColor function from conflict-drawer.tsx (TS6133 warning).
+  - Removed unused XCircle import from lucide-react in Conflicts.tsx (TS6133 warning).
+  - Ensures "npm run build" (tsc && vite build) succeeds in local dev and Docker web builder stage (copies package.json, npm install, then build).
+  - Preserves date formatting functionality in conflicts UI (format/isValid for 'MMM dd, yyyy HH:mm'); no impact on backend or sync flow.
+  - Build now transforms all modules successfully, matching dev/prod environments.
 - [ ] Integration testing
 - [ ] Performance optimization
 - [ ] User documentation

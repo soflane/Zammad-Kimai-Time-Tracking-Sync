@@ -48,6 +48,7 @@
 - **React** (18+): UI library
 - **Vite**: Build tool and dev server
 - **React Router** (v6): Client-side routing
+- **date-fns**: Date formatting and validation library
 - **TanStack Query**: Server state management
 - **Axios**: HTTP client
 - **Tailwind CSS**: Utility-first styling

@@ -5,7 +5,7 @@ import { conflictService } from '@/services/api.service'
 import type { Conflict } from '@/types'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { AlertCircle, CheckCircle, XCircle, Eye, Loader2, ArrowUpDown } from 'lucide-react'
+import { AlertCircle, CheckCircle, Eye, Loader2, ArrowUpDown } from 'lucide-react'
 import { format } from 'date-fns' // Note: isValid not used, so omit for now; assume dates valid
 import { ConflictDrawer } from '../components/ui/conflict-drawer'
 

@@ -14,9 +14,12 @@ from datetime import date, datetime
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
-from app.config import settings
+import os
 
-engine_url = settings.database_url  # Assume settings has it, or os.getenv('DATABASE_URL')
+# Get DB URL from env or default
+engine_url = os.getenv('DATABASE_URL', 'postgresql://user:pass@localhost/db')
+
+ [Response interrupted by a tool use result. Only one tool may be used at a time and should be placed at the end of the message.]
 
 engine = create_engine(engine_url)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

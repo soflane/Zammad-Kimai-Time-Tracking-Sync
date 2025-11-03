@@ -15,18 +15,6 @@ interface ConflictDrawerProps {
 export function ConflictDrawer({ open, onClose, conflict }: ConflictDrawerProps) {
   if (!conflict) return null
 
-  const getStatusColor = (code: string) => {
-    return {
-      'UNMAPPED_ACTIVITY': 'yellow',
-      'DUPLICATE': 'orange',
-      'TIME_MISMATCH': 'red',
-      'PROJECT_OR_CUSTOMER_MISSING': 'gray',
-      'LOCKED_OR_EXPORTED': 'blue',
-      'CREATION_ERROR': 'red',
-      'OTHER': 'purple'
-    }[code] || 'gray'
-  }
-
   const isMismatch = conflict.reason_code === 'TIME_MISMATCH'
   const isUnmapped = conflict.reason_code === 'UNMAPPED_ACTIVITY'
 
