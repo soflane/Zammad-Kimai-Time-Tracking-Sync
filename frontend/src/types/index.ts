@@ -130,7 +130,9 @@ export interface Conflict {
 }
 
 export interface ConflictUpdate {
-  resolution_status: 'resolved' | 'ignored'
+  resolution_status?: string
+  resolution_action?: string
+  notes?: string
 }
 
 export interface SyncRun {

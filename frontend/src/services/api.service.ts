@@ -123,7 +123,7 @@ export const conflictService = {
   },
 
   resolve: async (id: number, resolution: ConflictUpdate): Promise<Conflict> => {
-    const response = await api.put(`/conflicts/${id}/resolve`, resolution)
+    const response = await api.patch(`/conflicts/${id}`, resolution)
     return response.data
   },
 
