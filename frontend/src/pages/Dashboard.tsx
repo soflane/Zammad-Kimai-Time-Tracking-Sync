@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/hooks/use-toast';
-import { connectorService, conflictService, mappingService, syncService } from '@/services/api.service';
+import { connectorService, conflictService, mappingService, syncService, auditService } from '@/services/api.service';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -12,6 +13,8 @@ import {
   Database,
   Activity,
 } from 'lucide-react';
+import { formatDistanceToNow } from 'date-fns';
+import type { AuditLog } from '@/types';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -20,26 +23,30 @@ export default function Dashboard() {
     conflicts: 0,
     lastSync: null as string | null,
   });
+  const [recentActivity, setRecentActivity] = useState<{ action: string; time: string; status: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const { isAuthenticated } = useAuth();
   const { toast } = useToast();
+  const navigate = useNavigate();
 
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
       
       // Fetch data with individual error handling to prevent complete failure
-      const [connectors, mappings, conflicts, syncRuns] = await Promise.allSettled([
+      const [connectors, mappings, conflicts, syncRuns, auditLogs] = await Promise.allSettled([
         connectorService.getAll(),
         mappingService.getAll(),
         conflictService.getAll(),
         syncService.getSyncHistory(),
+        auditService.getAll({ limit: 5 }),
       ]);
 
       const connectorsData = connectors.status === 'fulfilled' ? connectors.value : [];
       const mappingsData = mappings.status === 'fulfilled' ? mappings.value : [];
       const conflictsData = conflicts.status === 'fulfilled' ? conflicts.value : [];
       const syncRunsData = syncRuns.status === 'fulfilled' ? syncRuns.value : [];
+      const auditLogsData = auditLogs.status === 'fulfilled' ? auditLogs.value : [];
 
       const activeConnectors = (connectorsData as any[]).filter((c: any) => c.is_active).length;
       const pendingConflicts = (conflictsData as any[]).filter((c: any) => c.resolution_status === 'pending').length;
@@ -52,8 +59,17 @@ export default function Dashboard() {
         lastSync: lastSyncRun ? new Date(lastSyncRun).toLocaleString() : null,
       });
 
+      // Set recent activity from audit logs
+      setRecentActivity(
+        auditLogsData.map((log: AuditLog) => ({
+          action: log.action,
+          time: formatDistanceToNow(new Date(log.created_at), { addSuffix: true }),
+          status: 'default'  // Can map based on action if needed
+        }))
+      );
+
       // Show warning if any requests failed (but don't block the UI)
-      const failedRequests = [connectors, mappings, conflicts, syncRuns].filter(r => r.status === 'rejected');
+      const failedRequests = [connectors, mappings, conflicts, syncRuns, auditLogs].filter(r => r.status === 'rejected');
       if (failedRequests.length > 0) {
         console.warn('Some dashboard data failed to load:', failedRequests);
       }
@@ -84,6 +100,10 @@ export default function Dashboard() {
         variant: "destructive",
       });
     }
+  };
+
+  const handleViewDetails = () => {
+    navigate('/audit-logs');
   };
 
   const StatCard = ({ 
@@ -213,11 +233,7 @@ export default function Dashboard() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {[
-              { action: "Sync completed successfully", time: "2 hours ago", status: "success" },
-              { action: "No conflicts resolved", time: "1 day ago", status: "warning" },
-              { action: "Connector configuration updated", time: "3 days ago", status: "default" },
-            ].map((item, i) => (
+            {recentActivity.map((item, i) => (
               <div key={i} className="flex items-center justify-between p-4 rounded-lg border border-border/50 hover:bg-accent/30 transition-all duration-200 hover-lift">
                 <div className="flex items-center space-x-3">
                   <span className={`px-3 py-1.5 rounded-full text-xs font-medium ${
@@ -228,11 +244,16 @@ export default function Dashboard() {
                   </span>
                   <span className="text-sm text-muted-foreground">{item.time}</span>
                 </div>
-                <Button variant="ghost" size="sm" className="btn-modern">
+                <Button variant="ghost" size="sm" className="btn-modern" onClick={handleViewDetails}>
                   View Details
                 </Button>
               </div>
             ))}
+            {recentActivity.length === 0 && (
+              <div className="text-center py-8 text-muted-foreground">
+                No recent activity
+              </div>
+            )}
           </div>
         </CardContent>
       </Card>

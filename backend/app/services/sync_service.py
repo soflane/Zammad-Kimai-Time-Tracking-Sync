@@ -14,6 +14,7 @@ from app.services.reconciler import ReconciliationService, ReconciledTimeEntry, 
 from app.models.conflict import Conflict as DBConflict
 from app.schemas.conflict import ConflictCreate
 from app.models.mapping import ActivityMapping
+from app.models.sync_run import SyncRun
 from app.constants.conflict_reasons import ReasonCode, explain_reason
 from sqlalchemy import or_
 from app.schemas.connector import KimaiConnectorConfig
@@ -177,11 +178,21 @@ Zammad URL: {zammad_url}
             log.error(f"Failed to create timesheet for {entry.source_id}: {e}")
             return {'status': 'error', 'error': str(e)}
 
-    async def sync_time_entries(self, start_date: str, end_date: str) -> dict:
+    async def sync_time_entries(self, start_date: str, end_date: str, trigger_type: str = 'manual') -> dict:
         """
         Performs a full synchronization cycle for time entries within the given date range.
         Returns stats: {'processed': int, 'created': int, 'conflicts': int}
         """
+        # Create SyncRun record
+        sync_run = SyncRun(
+            trigger_type=trigger_type,
+            start_time=datetime.now(ZoneInfo('Europe/Brussels')),
+            status='running'
+        )
+        self.db.add(sync_run)
+        self.db.commit()
+        sync_run_id = sync_run.id
+
         stats = {
             "processed": 0,
             "created": 0,
@@ -197,7 +208,7 @@ Zammad URL: {zammad_url}
             "skipped_duplicates": 0
         }
         try:
-            log.debug(f"SyncService.sync_time_entries called with period {start_date} to {end_date}")
+            log.debug(f"SyncService.sync_time_entries called with period {start_date} to {end_date}, trigger: {trigger_type}, run_id: {sync_run_id}")
             log.info(f"=== Starting sync from {start_date} to {end_date} ===")
 
             # 1. Fetch entries from Zammad (already normalized by connector)
@@ -211,6 +222,10 @@ Zammad URL: {zammad_url}
             kimai_entries = await self.kimai_connector.fetch_time_entries(start_date, end_date)
             log.debug(f"Kimai entries fetched: {len(kimai_entries)}")
             stats["kimai_fetched"] = len(kimai_entries)
+
+            # Update fetched count
+            sync_run.entries_fetched = len(zammad_normalized_entries) + len(kimai_entries)
+            self.db.commit()
 
             # 3. Reconcile entries
             log.debug("Reconciling entries...")
@@ -389,7 +404,14 @@ Zammad URL: {zammad_url}
                 else:
                     stats["skipped"] += 1
 
+            # Update SyncRun on success
+            sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
+            sync_run.status = 'completed'
+            sync_run.entries_synced = stats["created"]
+            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0)  # Approximate
+            sync_run.conflicts_detected = stats["conflicts"]
             self.db.commit()
+
             log.info(f"=== Sync completed ===")
             log.info(f"Stats: {stats}")
 
@@ -398,6 +420,14 @@ Zammad URL: {zammad_url}
             log.error(traceback.format_exc())
             if "error" not in stats:
                 stats["error"] = str(e)
-            self.db.rollback()
+            
+            # Update SyncRun on failure
+            sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
+            sync_run.status = 'failed'
+            sync_run.error_message = str(e)
+            sync_run.entries_synced = stats["created"]
+            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0) + 1  # +1 for overall failure
+            sync_run.conflicts_detected = stats["conflicts"]
+            self.db.commit()
 
         return stats

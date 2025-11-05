@@ -13,7 +13,7 @@ class SyncRun(Base):
     id = Column(Integer, primary_key=True, index=True)
     
     # Execution details
-    trigger_type = Column(String(50), nullable=False)  # 'scheduled', 'manual', 'webhook'
+    trigger_type = Column(String(50), nullable=False, default='manual')  # 'scheduled', 'manual', 'webhook'
     start_time = Column(DateTime(timezone=True), nullable=False)
     end_time = Column(DateTime(timezone=True), nullable=True)
     status = Column(String(50), nullable=False)  # 'running', 'completed', 'failed'
