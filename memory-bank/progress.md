@@ -117,6 +117,13 @@
   - Ensures "npm run build" (tsc && vite build) succeeds in local dev and Docker web builder stage (copies package.json, npm install, then build).
   - Preserves date formatting functionality in conflicts UI (format/isValid for 'MMM dd, yyyy HH:mm'); no impact on backend or sync flow.
   - Build now transforms all modules successfully, matching dev/prod environments.
+
+- [x] **Fixed Kimai Timesheet Creation 400 Error (November 2025)**:
+  - Resolved 400 Bad Request on POST /api/timesheets caused by "tags" as JSON array instead of string.
+  - Updated backend/app/services/sync_service.py: Set tags = "source:zammad" (string).
+  - Aligns with design for manual billing; idempotency via reconciler.
+  - No schema changes; backward compatible; ready for sync testing (no 400 errors expected).
+
 - [ ] Integration testing
 - [ ] Performance optimization
 - [ ] User documentation

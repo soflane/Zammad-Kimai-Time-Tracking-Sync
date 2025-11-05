@@ -158,7 +158,7 @@ Customer: {customer_name}
 Title: {entry.ticket_title or 'N/A'}
 Zammad URL: {zammad_url}
 {entry.description}"""
-        tags = ["source:zammad", f"zid:{entry.source_id}", f"ticket:{entry.ticket_number}"]
+        tags = "source:zammad"
         
         payload = {
             "project": project_id,

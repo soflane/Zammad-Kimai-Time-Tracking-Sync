@@ -4,7 +4,16 @@
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented. **Latest: Enhanced sync with marker-based idempotency, article timestamps, and improved duplicate prevention (January 2025).**
 
 ## Recent Actions (Most Recent First)
-1. **Enhanced Zammad→Kimai Sync with Marker-Based Idempotency (January 2025)**:
+1. **Fixed Kimai Timesheet Creation 400 Error (November 2025)**:
+   - **Problem**: 400 Bad Request on POST /api/timesheets due to "tags" sent as JSON array instead of comma-separated string.
+   - **Root Cause**: Sync service set tags = ["source:zammad", "zid:{id}", "ticket:{num}"], but Kimai expects string like "source:zammad".
+   - **Fix** (`backend/app/services/sync_service.py`):
+     - Simplified tags = "source:zammad" (string only, aligns with October 2025 design for manual billing).
+   - **Impact**: Resolves API validation error; new timesheets create successfully without zid/ticket tags (idempotency via reconciler).
+   - **Testing**: Re-run sync; verify no 400 errors, timesheets appear in Kimai with correct description/marker.
+   - **Compliance**: Maintains one-way sync; no schema changes; backward compatible.
+
+2. **Enhanced Zammad→Kimai Sync with Marker-Based Idempotency (January 2025)**:
    - **Problems Solved**:
      1. Duplicate timesheet creation on multiple sync runs
      2. Loss of precision in timestamps (not using article timestamps)
