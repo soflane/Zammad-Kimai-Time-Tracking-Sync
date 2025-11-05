@@ -263,7 +263,7 @@ class KimaiConnector(BaseConnector):
             else:
                 tags = []
 
-            # Parse Zammad metadata from tags for matching (idempotency)
+            # Parse Zammad metadata from tags for matching (idempotency) - legacy support
             parsed_source_id = str(entry.get("id"))  # Default to Kimai ID
             parsed_ticket_number = None
             for tag in tags:
@@ -272,13 +272,22 @@ class KimaiConnector(BaseConnector):
                 if tag.startswith("ticket:"):
                     parsed_ticket_number = tag.split("ticket:", 1)[1].lstrip("#")
 
-            # Fallback: Parse ticket_number from description if not from tags (legacy support)
+            # Primary: Parse marker from description "ZAM:T{tid}|TA:{ta_id}"
             desc = entry.get("description") or ""
             import re
-            ticket_match = re.search(r"Ticket-([#]?\d+)", desc)
-            if ticket_match and not parsed_ticket_number:
-                parsed_ticket_number = ticket_match.group(1).lstrip("#")
-                log.debug(f"Parsed ticket_number '{parsed_ticket_number}' from description: {desc[:50]}...")
+            marker_match = re.match(r'ZAM:T(\d+)\|TA:(\d+)', desc)
+            if marker_match:
+                tid, ta_id = marker_match.groups()
+                parsed_ticket_number = tid
+                parsed_source_id = ta_id
+                log.debug(f"Parsed marker from description: ticket={tid}, source_id={ta_id}")
+
+            # Fallback: Parse ticket_number from description if not from marker/tags (legacy support)
+            if not parsed_ticket_number:
+                ticket_match = re.search(r"Ticket-([#]?\d+)", desc)
+                if ticket_match:
+                    parsed_ticket_number = ticket_match.group(1).lstrip("#")
+                    log.debug(f"Parsed ticket_number '{parsed_ticket_number}' from description: {desc[:50]}...")
 
             log.debug(f"Normalized Kimai {parsed_source_id}: ticket={parsed_ticket_number}, begin_time={begin_local}")
 

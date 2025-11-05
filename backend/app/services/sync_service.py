@@ -350,7 +350,7 @@ Zammad URL: {zammad_url}
                             'entry_date': str(z_entry.entry_date),
                         }
                     detail = explain_reason(reason_code, context)
-                    k_id = int(k_entry.id) if k_entry.id else (int(k_entry.source_id) if k_entry.source_id and k_entry.source_id.isdigit() else None)
+                    k_id = int(k_entry.source_id) if k_entry.source_id else None
                     customer_name = self._determine_customer_name(z_entry)
                     project_name = f"Ticket {z_entry.ticket_number or z_entry.ticket_id}"
                     
