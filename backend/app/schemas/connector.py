@@ -7,6 +7,7 @@ class KimaiConnectorConfig(BaseModel):
     use_global_activities: bool = True
     default_project_id: Optional[int] = None
     default_activity_id: Optional[int] = None  # Fallback activity for unmapped Zammad types
+    ignore_unmapped_activities: bool = False  # Ignore unmapped activities during sync (skip instead of conflict)
     default_country: str = "BE"
     default_currency: str = "EUR"
     default_timezone: str = "Europe/Brussels"

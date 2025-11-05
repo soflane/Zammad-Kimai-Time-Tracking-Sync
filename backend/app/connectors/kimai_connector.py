@@ -273,7 +273,7 @@ class KimaiConnector(BaseConnector):
                     parsed_ticket_number = tag.split("ticket:", 1)[1].lstrip("#")
 
             # Fallback: Parse ticket_number from description if not from tags (legacy support)
-            desc = entry.get("description", "")
+            desc = entry.get("description") or ""
             import re
             ticket_match = re.search(r"Ticket-([#]?\d+)", desc)
             if ticket_match and not parsed_ticket_number:
@@ -538,6 +538,27 @@ class KimaiConnector(BaseConnector):
             log.error(f"Error finding customer by name: {e.response.status_code} - {e.response.text}")
             return None
 
+    async def get_customer(self, customer_id: int) -> Dict[str, Any]:
+        """
+        Fetches a customer by ID from Kimai.
+        
+        Args:
+            customer_id: The customer ID to fetch
+            
+        Returns:
+            Customer object with all details
+        """
+        try:
+            response_data = await self._request("GET", f"/api/customers/{customer_id}")
+            log.debug(f"Fetched customer {customer_id}: {response_data.get('name')}")
+            return response_data
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                log.error(f"Customer {customer_id} not found")
+                raise ValueError(f"Kimai customer {customer_id} does not exist")
+            log.error(f"Error fetching customer {customer_id}: {e.response.status_code} - {e.response.text}")
+            raise ValueError(f"Failed to fetch Kimai customer {customer_id}: {e.response.text}")
+
     async def create_customer(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """
         Creates a new customer in Kimai.
@@ -573,12 +594,16 @@ class KimaiConnector(BaseConnector):
         Recommended: globalActivities=true for easier activity assignment
         """
         try:
+            log.debug(f"Kimai create_project payload: {payload}")
             response_data = await self._request("POST", "/api/projects", json=payload)
             log.info(f"Created Kimai project: {response_data.get('name')} (ID: {response_data.get('id')})")
             return response_data
-        except httpx.HTTPStatusError as e:
-            log.error(f"Error creating project: {e.response.status_code} - {e.response.text}")
-            raise ValueError(f"Failed to create Kimai project: {e.response.text}")
+        except (httpx.HTTPStatusError, ValueError) as e:
+            error_msg = str(e)
+            log.error(f"Error creating project with payload {payload}")
+            log.error(f"Error details: {error_msg}")
+            # Re-raise the ValueError that _request() already formatted
+            raise
 
     async def get_project(self, project_id: int) -> Dict[str, Any]:
         """

@@ -22,6 +22,8 @@ export interface LoginResponse {
 export interface KimaiConnectorConfig {
   use_global_activities?: boolean
   default_project_id?: number | null
+  default_activity_id?: number | null
+  ignore_unmapped_activities?: boolean
   default_country?: string
   default_currency?: string
   default_timezone?: string

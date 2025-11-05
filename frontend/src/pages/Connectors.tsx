@@ -75,6 +75,7 @@ export default function Connectors() {
       settings: {
         use_global_activities: true,
         default_project_id: null,
+        ignore_unmapped_activities: false,
         default_country: 'BE',
         default_currency: 'EUR',
         default_timezone: 'Europe/Brussels'
@@ -93,6 +94,7 @@ export default function Connectors() {
         settings: connector.type === 'kimai' ? (connector.settings as KimaiConnectorConfig || {
           use_global_activities: true,
           default_project_id: null,
+          ignore_unmapped_activities: false,
           default_country: 'BE',
           default_currency: 'EUR',
           default_timezone: 'Europe/Brussels'
@@ -420,6 +422,20 @@ export default function Connectors() {
                           className="h-4 w-4"
                         />
                         <label htmlFor="use_global_activities" className="text-sm">Use Global Activities</label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <input 
+                          type="checkbox" 
+                          id="ignore_unmapped_activities" 
+                          checked={formData.settings?.ignore_unmapped_activities ?? false}
+                          onChange={(e) => setFormData({ 
+                            ...formData, 
+                            settings: { ...formData.settings!, ignore_unmapped_activities: e.target.checked }
+                          })}
+                          className="h-4 w-4"
+                        />
+                        <label htmlFor="ignore_unmapped_activities" className="text-sm">Ignore Unmapped Activities</label>
+                        <p className="text-xs text-muted-foreground ml-6">Skip entries with unmapped Zammad activities instead of flagging as conflicts during sync.</p>
                       </div>
                       <div>
                         <label className="text-sm font-medium mb-2 block">Default Project ID (optional)</label>
