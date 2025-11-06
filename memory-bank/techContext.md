@@ -37,7 +37,7 @@
   - Secure authentication
 
 - **passlib**: Password hashing
-  - Bcrypt algorithm
+  - Bcrypt or pbkdf2_sha256
   - Secure credential storage
 
 - **cryptography**: API token encryption
@@ -45,25 +45,33 @@
   - Secure credential storage in database
 
 ### Frontend
-- **React** (18+): UI library
-- **Vite**: Build tool and dev server
-- **React Router** (v6): Client-side routing
-- **date-fns**: Date formatting and validation library
-- **TanStack Query**: Server state management
-- **Axios**: HTTP client
-- **Tailwind CSS**: Utility-first styling
-- **Shadcn/UI**: Component library
+- **React** (18+) + **Vite**
+- **TypeScript**
+- **Tailwind CSS**
+- **shadcn/ui** primitives (button, card, dialog, tabs, table, input, select, switch, badge, separator, progress)
+- **TanStack Query** for server state
+- **Axios** for HTTP client
+- **React Router v6** (minimal routing: `/login` and `/`)
+- **date-fns** for formatting
+- New UI utilities for the single-page dashboard:
+  - **lucide-react** icons
+  - **recharts** for the KPI area chart
+  - **framer-motion** for light transitions
+
+Single-page UI architecture:
+- Route `/` renders `Layout` + `SyncDashboard` with anchored sections (`#dashboard`, `#connectors`, `#mappings`, `#reconcile`, `#audit`).
+- Left sidebar provides anchor navigation; top bar exposes “Schedule” and “Run sync now”.
+- All CRUD operations (connectors, mappings, reconcile actions) occur via dialogs and inline buttons—no route changes.
 
 ### Database
-- **PostgreSQL** (15+): Relational database
-  - JSONB support for flexible data
+- **PostgreSQL** (15+)
+  - JSONB support
   - Robust transaction handling
   - Excellent performance
 
 ### DevOps
-- **Docker**: Containerization
-- **Docker Compose**: Multi-container orchestration
-- **Nginx**: Reverse proxy and static file serving
+- **Docker** and **Docker Compose**
+- **Nginx** as reverse proxy and static file server
 
 ## Development Environment Setup
 
@@ -75,31 +83,34 @@
 
 ### Local Development
 
-**Backend:**
+Backend:
 ```bash
 cd backend
 python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+# Windows
+venv\Scripts\activate
+# macOS/Linux
+# source venv/bin/activate
 pip install -r requirements.txt
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-**Frontend:**
+Frontend:
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-**Database:**
+Database:
 ```bash
 docker-compose up -d db
 ```
 
 ### Environment Variables
 
-**Backend (.env):**
+Backend (.env):
 ```
 DATABASE_URL=postgresql://user:pass@localhost:5432/zammad_sync
 SECRET_KEY=your-secret-key-here
@@ -109,59 +120,44 @@ ADMIN_USERNAME=admin
 ADMIN_PASSWORD=changeme
 ```
 
-**Frontend (.env):**
+Frontend (.env):
 ```
 VITE_API_URL=http://localhost:8000
 ```
 
 ## API Integration Details
 
+Important: Do not change API shapes for the UI refactor. The service layer and types are the contract.
+- Service layer: `frontend/src/services/api.service.ts`
+- Types: `frontend/src/types/index.ts`
+
 ### Zammad API
-- **Base URL**: Configurable per installation
-- **Authentication**: Bearer token (HTTP Token)
-- **Key Endpoints**:
-  - `GET /api/v1/tickets/{id}/time_accountings` - List time entries
-  - `GET /api/v1/tickets/{id}/time_accountings/{aid}` - Get single entry
-  - `POST /api/v1/tickets/{id}/time_accountings` - Create entry
-  - `PUT /api/v1/tickets/{id}/time_accountings/{aid}` - Update entry
-  - `DELETE /api/v1/tickets/{id}/time_accountings/{aid}` - Delete entry
-
-- **Data Format**:
-  ```json
-  {
-    "id": 6,
-    "ticket_id": 50,
-    "ticket_article_id": 87,
-    "time_unit": "15.0",
-    "type_id": 3,
-    "created_by_id": 3,
-    "created_at": "2023-08-16T08:11:49.315Z",
-    "updated_at": "2023-08-16T08:11:49.315Z"
-  }
-  ```
-
-- **Webhook Format**: HMAC-SHA1 signature in X-Zammad-Signature header
+- Auth: HTTP Token
+- Key endpoints:
+  - GET `/api/v1/tickets/{id}/time_accountings`
+  - GET `/api/v1/tickets/{id}/time_accountings/{aid}`
+  - POST `/api/v1/tickets/{id}/time_accountings`
+  - PUT `/api/v1/tickets/{id}/time_accountings/{aid}`
+  - DELETE `/api/v1/tickets/{id}/time_accountings/{aid}`
+- Webhook: HMAC-SHA1 signature header
 
 ### Kimai API
-- **Base URL**: Configurable per installation
-- **Authentication**: Bearer token (API token from user profile)
-- **Documentation**: Available at `/api/doc` on each instance
-- **Key Endpoints**:
-  - `GET /api/timesheets` - List timesheets
-  - `POST /api/timesheets` - Create timesheet
-  - `PATCH /api/timesheets/{id}` - Update timesheet
-  - `DELETE /api/timesheets/{id}` - Delete timesheet
-  - `GET /api/activities` - List activities
-  - `GET /api/projects` - List projects
-
-- **DateTime Format**: HTML5 local datetime (YYYY-MM-DDTHH:mm:ss)
-- **Tags**: Array of strings, e.g., ["billed:2024-01", "internal"]
+- Auth: API token
+- Docs at `/api/doc`
+- Key endpoints:
+  - GET `/api/timesheets`
+  - POST `/api/timesheets`
+  - PATCH `/api/timesheets/{id}`
+  - DELETE `/api/timesheets/{id}`
+  - GET `/api/activities`
+  - GET `/api/projects`
+- Datetime: HTML5 local datetime (YYYY-MM-DDTHH:mm:ss)
+- Tags: comma-separated string (e.g., `source:zammad`)
 
 ## Database Schema Notes
 
-### Key Indexes
+Key indexes:
 ```sql
--- Performance indexes
 CREATE INDEX idx_time_entries_source ON time_entries(source, source_id);
 CREATE INDEX idx_time_entries_date ON time_entries(entry_date);
 CREATE INDEX idx_time_entries_sync_status ON time_entries(sync_status);
@@ -169,69 +165,92 @@ CREATE INDEX idx_conflicts_resolution_status ON conflicts(resolution_status);
 CREATE INDEX idx_audit_logs_created_at ON audit_logs(created_at DESC);
 ```
 
-### Encryption Strategy
-- API tokens stored encrypted using Fernet (symmetric encryption)
-- Encryption key stored in environment variable
-- Decrypted only when needed for API calls
+Encryption strategy:
+- Tokens encrypted with Fernet; key in env var; decrypt only on use
+
+## Frontend Data Access and Caching
+
+TanStack Query setup:
+- Axios instance uses `VITE_API_URL`
+- Suggested query keys:
+  - `["kpi"]`
+  - `["syncRuns"]`
+  - `["connectors"]`
+  - `["mappings"]`
+  - `["conflicts", filter]`
+  - `["auditLogs"]`
+- Invalidation rules:
+  - Connector CRUD/test/re-auth → `["connectors"]`, `["kpi"]`
+  - Mapping CRUD/import/export → `["mappings"]`, `["kpi"]`
+  - Reconcile actions → `["conflicts", filter]`, `["auditLogs"]`, `["syncRuns"]`, `["kpi"]`
+  - Manual run/schedule change → `["syncRuns"]`, `["kpi"]`
 
 ## Testing Strategy (Future)
 
-### Backend Tests
-- **Unit Tests**: pytest for services and connectors
-- **Integration Tests**: Test database operations
-- **API Tests**: TestClient for endpoint testing
+Backend:
+- pytest unit tests for services/connectors
+- Integration tests for DB and API
+- Webhook validation tests
 
-### Frontend Tests
-- **Component Tests**: React Testing Library
-- **E2E Tests**: Playwright for full workflows
+Frontend:
+- React Testing Library for components
+- Playwright E2E for single-page flows (connectors → mappings → reconcile → audit)
 
 ## Performance Considerations
 
-### Database
-- Connection pooling (10 connections initially)
-- Index on frequently queried fields
+Database:
+- Pooling; indexes on hot fields
 - JSONB for flexible connector settings
 
-### API Calls
-- Async HTTP clients for parallel requests
-- Retry logic with exponential backoff
-- Timeout settings (30s default)
+API Calls:
+- Async/parallel external requests
+- Retries with backoff
+- 30s timeout defaults
 
-### Caching (Future)
-- Redis for connector configs and mappings
+Caching (Future):
+- Redis for connector configs/mappings
 - Cache invalidation on updates
-- TTL-based expiration
 
 ## Security Best Practices
 
-1. **Never commit secrets**: Use .env files, add to .gitignore
-2. **Encrypt sensitive data**: API tokens encrypted at rest
-3. **Validate webhook signatures**: HMAC verification for Zammad
-4. **Use HTTPS**: All external API calls over TLS
-5. **JWT expiration**: Tokens expire after 24 hours
-6. **Input validation**: Pydantic schemas validate all inputs
-7. **SQL injection prevention**: SQLAlchemy ORM prevents injection
-8. **CORS configuration**: Whitelist specific origins only
+1. No committed secrets
+2. Encrypt tokens at rest
+3. Verify webhook signatures
+4. TLS for all external calls
+5. JWT expiration policy
+6. Input validation everywhere
+7. Prefer ORM queries to avoid injection
+8. CORS restricted to known origins
 
 ## Deployment Configuration
 
-### Docker Compose Services
-- **db**: PostgreSQL database
-- **backend**: FastAPI application
-- **frontend**: React application (built)
-- **nginx**: Reverse proxy
+Docker Compose services:
+- db, backend, frontend, nginx
 
-### Health Checks
-- Database: `pg_isready` command
-- Backend: `/api/health` endpoint
-- Frontend: Nginx status
+Health checks:
+- pg_isready for DB
+- `/api/health` for backend
+- Nginx status
 
-### Logging
-- Backend: Structured logging to stdout
-- Nginx: Access and error logs to volumes
-- Database: PostgreSQL logs
+Logging:
+- Structured backend logs to stdout
+- Nginx access/error logs
+- Postgres logs
 
-### Backup Strategy (Recommended)
-- Daily database dumps
-- Volume backups for postgres_data
-- Config backup (.env files, encrypted)
+Backup strategy:
+- Daily DB dumps
+- Volume backups
+- Config backups (.env, encrypted)
+
+## Development Environment Notes
+
+Windows local development:
+- Frontend: `cd frontend && npm run dev`
+- Backend: `cd backend && uvicorn app.main:app --reload`
+- Vite dev server on 5173; backend on 8000; `/api` proxied by Vite (see `vite.config.ts`)
+- PowerShell uses `;` for chaining; `cmd.exe` supports `&&`
+
+Routing model for SPA:
+- `/login` → auth flow
+- `/` → `SyncDashboard` single page with anchors
+- Keep existing pages for now during transition; final state should prefer single dashboard component

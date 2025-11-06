@@ -4,13 +4,14 @@
 
 ```
 ┌─────────────┐
-│   Web UI    │ (React + Vite)
-│  (Frontend) │
-└──────┬──────┘
+│   Web UI    │  React 18 + Vite + TS
+│ (Frontend)  │  Tailwind + shadcn/ui
+└──────┬──────┘  TanStack Query + Axios
        │ HTTP/REST
        ▼
 ┌─────────────────────────────────────┐
-│     FastAPI Backend                 │
+│             FastAPI                │
+│        (Backend Services)          │
 │  ┌──────────────────────────────┐  │
 │  │      API Endpoints           │  │
 │  └──────────────────────────────┘  │
@@ -35,37 +36,58 @@
 
 External Systems:
 ┌──────────┐         ┌──────────┐
-│  Zammad  │────────▶│  System  │
+│  Zammad  │────────▶│  Kimai   │
 │ (Webhook)│         │          │
 └──────────┘         └──────────┘
 ```
 
+## Frontend UI Architecture (Single Page)
+
+The UI is refactored into a single-page command center named `SyncDashboard` with anchored sections:
+- Dashboard
+- Connectors
+- Mappings
+- Reconcile
+- Audit & History
+
+Key patterns:
+- Navigation: sticky top bar actions (Schedule, Run sync now) and left sidebar with in-page anchors. Router is kept minimal: `/login` and `/` (protected). All management happens on `/`.
+- Components: shadcn/ui primitives (Button, Card, Dialog, Tabs, Table, Badge, Input, Switch, Select, Separator, Progress).
+- Data: TanStack Query for server state; Axios service layer with strict types from `frontend/src/types/index.ts`. No API shape changes required.
+- Charts/Visuals: Recharts for the KPI area chart; lucide-react icons; framer-motion for subtle entrance/hover effects.
+- Section composition:
+  - Dashboard: KPI stat cards, “Minutes synced (7d)” chart, recent runs list.
+  - Connectors: Cards for Zammad/Kimai with status badges, Configure/Re-auth dialogs, “Test connection”.
+  - Mappings: Searchable table with Create/Edit dialog; Export action.
+  - Reconcile: Tabs (All/Matches/Missing/Conflicts); diff rows with inline actions and “Apply selected”.
+  - Audit & History: Run history with progress bars and status badges.
+- Query keys and invalidation map:
+  - `["connectors"]`: CRUD in Connectors → invalidate on create/update/delete, test connection, re-auth.
+  - `["mappings"]`: CRUD in Mappings → invalidate on create/update/delete/import/export.
+  - `["conflicts", filter]`: resolve/ignore/apply-selected → invalidate current filter and `["auditLogs"]`, `["syncRuns"]`.
+  - `["auditLogs"]`: invalidate after conflict resolutions and manual sync runs.
+  - `["syncRuns"]`: invalidate after manual sync or schedule changes.
+  - `["kpi"]`: derived from existing endpoints (sync runs, conflicts, mappings); recompute locally; re-fetch dependent queries and recompute on invalidations above.
+- Error and toast pattern: Central toast hook (`use-toast`) for success/error; Axios interceptors map backend errors to human-readable messages.
+
 ## Core Design Patterns
 
 ### 1. Plugin Architecture (Strategy Pattern)
-- **Abstract Base Class**: `BaseConnector` defines interface
-- **Concrete Implementations**: `ZammadConnector`, `KimaiConnector`
-- **Benefits**: Easy to add new connectors without modifying core logic
-- **Implementation**: Each connector implements fetch, create, update, delete methods
+- Base class `BaseConnector` with concrete `ZammadConnector` and `KimaiConnector`.
+- Additive: new connectors plug into the same interface without touching core.
 
 ### 2. Service Layer Pattern
-- **Separation**: Business logic isolated from API endpoints
-- **Services**: Normalizer, Reconciler, SyncService, ConflictResolver
-- **Benefits**: Testable, reusable, maintainable
+- Normalizer, Reconciler, SyncService encapsulate business logic.
+- API endpoints are thin; services are testable and reusable.
 
-### 3. Repository Pattern (via SQLAlchemy ORM)
-- **Models**: Define database schema
-- **Queries**: Centralized in model classes
-- **Benefits**: Database abstraction, easier to switch DB if needed
+### 3. Repository Pattern (SQLAlchemy)
+- Models define schema; queries centralized.
+- Enables DB-agnostic evolution if needed.
 
-### 4. Data Transfer Objects (Pydantic Schemas)
-- **Validation**: Automatic data validation
-- **Serialization**: JSON conversion
-- **Documentation**: Auto-generated API docs
+### 4. DTOs (Pydantic Schemas)
+- Input/output validation and OpenAPI documentation.
 
-## Key Technical Decisions
-
-### Data Flow: Zammad → System → Kimai
+## Data Flow: Zammad → System → Kimai
 
 ```
 Zammad Time Accounting
@@ -93,67 +115,58 @@ Resolution    →   Kimai Connector
                  Kimai Timesheet
 ```
 
-### Reconciliation Logic
+## Reconciliation Logic
 
-**Matching Strategy:**
+Matching strategy:
 1. Exact match by source_id (if previously synced)
 2. Match by ticket_number + date + time_unit
 3. Fuzzy match by date range + similar duration
 
-**Conflict Types:**
-- **Duplicate**: Entry exists in both systems with same data
-- **Mismatch**: Same entry but different values (time, activity type)
-- **Missing**: Entry in Zammad but not in Kimai (needs sync)
+Conflict types:
+- Duplicate, Mismatch, Missing
 
-### Webhook vs Scheduled Sync
+## Webhook vs Scheduled Sync
 
-**Webhook (Real-time):**
-- Triggered when Zammad ticket updated
-- HMAC signature verification for security
-- Immediate processing of single entry
-- Used for: Individual ticket updates
+- Webhook: near real-time, HMAC-verified, single entry processing.
+- Scheduled: periodic batches; catch-up and verification runs.
+- The top bar “Schedule” dialog configures periodic syncs; “Run sync now” triggers manual sync.
 
-**Scheduled (Periodic):**
-- Runs every X hours (configurable)
-- Fetches all entries in date range
-- Batch reconciliation
-- Used for: Catch-all, recovery, verification
+## Data Normalization
 
-### Data Normalization
+Unified normalized entry (reference):
 
-**Unified Time Entry Format:**
 ```python
 {
-    "source": "zammad",           # Source system
-    "source_id": "123",            # Original ID
-    "ticket_number": "#50",        # Ticket reference
-    "ticket_id": 50,               # Numeric ticket ID
-    "description": "Text",         # Entry description
-    "time_minutes": 30.0,          # Duration in minutes
-    "activity_type_id": 3,         # Activity type ID
-    "activity_name": "Support",    # Activity name
-    "user_email": "user@domain",   # User identifier
-    "entry_date": "2024-01-15",    # Date of work
+    "source": "zammad",
+    "source_id": "123",
+    "ticket_number": "#50",
+    "ticket_id": 50,
+    "description": "Text",
+    "time_minutes": 30.0,
+    "activity_type_id": 3,
+    "activity_name": "Support",
+    "user_email": "user@domain",
+    "entry_date": "2024-01-15",
     "created_at": "2024-01-15T10:00:00",
     "updated_at": "2024-01-15T10:00:00",
-    "tags": ["billed:2024-01"]     # Optional tags
+    "tags": ["billed:2024-01"]
 }
 ```
 
-### Security Considerations
+## Security Considerations
 
-1. **Credential Storage**: API tokens encrypted in database using cryptography library
-2. **Authentication**: JWT tokens for API access
-3. **Webhook Verification**: HMAC signature validation for Zammad webhooks
-4. **HTTPS**: All external API calls over TLS
-5. **Environment Variables**: Sensitive config in .env files, not committed
+- Encrypted credentials at rest.
+- JWT-protected API.
+- HMAC webhook verification.
+- TLS for all external calls.
+- Secrets via environment variables.
 
-### Error Handling Strategy
+## Error Handling Strategy
 
-1. **API Errors**: Retry with exponential backoff
-2. **Connection Failures**: Log and alert, continue with next sync
-3. **Data Validation Errors**: Store in error log, flag for review
-4. **Sync Failures**: Roll back transaction, preserve data integrity
+- Retries with exponential backoff for API failures.
+- Clear ValueError messages mapped to 4xx/5xx.
+- UI toast surface for user-facing feedback.
+- Audit trail records all mutation operations.
 
 ## Component Relationships
 
@@ -176,25 +189,25 @@ SyncService
     ├─> Normalizer
     ├─> Reconciler
     └─> AuditLogger
-
-Reconciler
-    ├─> TimeEntryRepository
-    └─> ConflictDetector
-
-ConflictResolver
-    ├─> KimaiConnector
-    └─> AuditLogger
 ```
+
+## SPA Navigation Model
+
+- Routes:
+  - `/login` → `Login` page
+  - `/` → `Layout` + `SyncDashboard` (protected)
+- In-page anchors for sections; URL fragments (e.g., `/#mappings`) supported for direct linking.
+- Scroll position maintained; sticky headers for context.
 
 ## Scalability Considerations
 
-### Current Design (V1)
-- Single instance deployment
-- Sequential sync processing
-- Direct database queries
+Current (V1):
+- Single instance
+- Sequential processing
+- Direct DB access
 
-### Future Scalability (V2+)
-- **Task Queue**: Celery for async job processing
-- **Caching**: Redis for frequently accessed data (mappings, connector configs)
-- **Horizontal Scaling**: Multiple backend instances behind load balancer
-- **Batch Processing**: Process large sync operations in chunks
+Future (V2+):
+- Celery for async jobs
+- Redis caching for connector configs and mappings
+- Horizontal scaling behind a reverse proxy
+- Virtualized long lists in UI sections (mappings, audit logs) when needed

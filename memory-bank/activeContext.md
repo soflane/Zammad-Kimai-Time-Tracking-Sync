@@ -1,5 +1,40 @@
 # Active Context
 
+## UI Refactor Focus — Single-Page Command Center (SyncDashboard)
+- Goal: Replace multi-page management UI with a single, scrollable page that contains anchored sections:
+  - Dashboard • Connectors • Mappings • Reconcile • Audit & History
+- Constraints:
+  - Keep backend API shapes unchanged; rely on existing service layer and types:
+    - frontend/src/services/api.service.ts
+    - frontend/src/types/index.ts
+  - Tech: React 18 + Vite + TypeScript + Tailwind + shadcn/ui + TanStack Query + Axios
+- Navigation model:
+  - Routes: /login (auth) and / (protected). The / route renders Layout + SyncDashboard.
+  - Left sidebar links to in-page anchors (#dashboard, #connectors, #mappings, #reconcile, #audit).
+  - Sticky top bar with “Schedule” and “Run sync now”.
+- Components/UX primitives:
+  - shadcn/ui primitives (Button, Card, Dialog, Input, Label, Badge, Tabs, Table, Select, Switch, Separator, Progress)
+  - lucide-react icons, recharts for area chart, framer-motion for light transitions
+- Data & caching:
+  - TanStack Query keys: ["kpi"], ["syncRuns"], ["connectors"], ["mappings"], ["conflicts", filter], ["auditLogs"]
+  - Invalidate on mutations:
+    - Connectors CRUD/test/re-auth → ["connectors"], ["kpi"]
+    - Mappings CRUD/export → ["mappings"], ["kpi"]
+    - Reconcile actions → ["conflicts", filter], ["auditLogs"], ["syncRuns"], ["kpi"]
+    - Manual run/schedule change → ["syncRuns"], ["kpi"]
+- Section behaviors:
+  - Dashboard: KPI stat cards, "Minutes synced (7d)" chart, "Recent Runs"
+  - Connectors: Cards per connector with status, Configure (Dialog), Re-auth, Test connection
+  - Mappings: Searchable table with New/Edit (Dialog), Export
+  - Reconcile: Tabs (All/Matches/Missing/Conflicts) and diff rows with inline actions; “Apply selected”
+  - Audit & History: Run history list with status badges and progress indicators
+- Acceptance criteria:
+  - All management tasks can be performed without leaving the page
+  - No API contract changes required; all actions wired to existing endpoints
+  - Query invalidation keeps KPIs, runs, and lists consistent in real time
+  - Layout usable on laptop screens; responsive to smaller widths
+  - Keyboard focus states and accessible labels on interactive elements
+
 ## Current Focus
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented. **Latest: Enhanced sync with marker-based idempotency, article timestamps, and improved duplicate prevention (January 2025).**
 
@@ -293,6 +328,24 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
     - Rebuilt frontend Docker image and restarted services; login now functional at http://localhost:3000.
 
 ## Next Immediate Steps
+
+UI single-page refactor (frontend):
+- [x] Create SyncDashboard component (frontend/src/pages/SyncDashboard.tsx) implementing the five anchored sections
+- [x] Add sticky top bar with “Schedule” and “Run sync now” wired to existing sync endpoints
+- [ ] Implement Connectors cards with Configure (Dialog), Test Connection, and Re-auth using api.service.ts
+- [ ] Implement Mappings table with search, New/Edit (Dialog), and Export
+- [ ] Implement Reconcile section with tabs (All/Matches/Missing/Conflicts), diff rows, and Apply Selected action
+- [ ] Implement Audit & History run list with statuses and durations
+- [ ] Establish TanStack Query keys and invalidation rules listed above
+- [ ] Keep router minimal: /login and protected / rendering Layout + SyncDashboard
+- [ ] Remove or hide legacy multi-page nav (leave code for now; route to SyncDashboard)
+- [ ] Visual polish: lucide icons, recharts area chart, motion micro-animations
+
+Notes:
+- Do not change API shapes; use existing types and services
+- Add any missing shadcn primitives locally if needed (button, card, etc. already exist in frontend/src/components/ui)
+
+(Existing backend/connectivity steps retained below)
 - **Test Kimai API fixes** with live instance:
   1. Configure Kimai connector with `http://timesheet.ayoute.be` URL and valid token
   2. Click "Test connection" → should succeed (auto-upgrade to HTTPS, follow redirect)

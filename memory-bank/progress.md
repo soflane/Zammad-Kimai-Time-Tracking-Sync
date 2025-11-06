@@ -109,7 +109,6 @@
   - Files: normalizer.py (base desc/tags), sync_service.py (explicit desc, tag refinement, no billed).
   - Impact: Clear zid/ticket_id visibility, only source tag, no duplicates via reconciler, no auto-billing.
   - Syntax validated; ready for testing.
-
 - [x] **Fixed Frontend Docker Build Error - Date-fns Missing (November 2025)**:
   - Added "date-fns": "^3.6.0" to frontend/package.json dependencies to resolve TS2307 "Cannot find module 'date-fns'" errors in src/components/ui/conflict-drawer.tsx and src/pages/Conflicts.tsx.
   - Removed unused getStatusColor function from conflict-drawer.tsx (TS6133 warning).
@@ -117,13 +116,29 @@
   - Ensures "npm run build" (tsc && vite build) succeeds in local dev and Docker web builder stage (copies package.json, npm install, then build).
   - Preserves date formatting functionality in conflicts UI (format/isValid for 'MMM dd, yyyy HH:mm'); no impact on backend or sync flow.
   - Build now transforms all modules successfully, matching dev/prod environments.
-
 - [x] **Fixed Kimai Timesheet Creation 400 Error (November 2025)**:
   - Resolved 400 Bad Request on POST /api/timesheets caused by "tags" as JSON array instead of string.
   - Updated backend/app/services/sync_service.py: Set tags = "source:zammad" (string).
   - Aligns with design for manual billing; idempotency via reconciler.
   - No schema changes; backward compatible; ready for sync testing (no 400 errors expected).
 
+## Phase 9 (In Progress): UI Refactor — Single-Page Command Center (SyncDashboard)
+- [x] Define UX direction and anchor sections in memory bank
+- [x] Document SPA navigation model (/login, / with anchors)
+- [x] Define TanStack Query keys and invalidation rules
+- [x] Create `SyncDashboard` component (frontend/src/pages/SyncDashboard.tsx) implementing all sections
+- [x] Add sticky top bar with “Schedule” and “Run sync now”; wire to existing sync endpoints
+- [ ] Connectors cards with Configure (Dialog), Test Connection, and Re-auth using api.service.ts
+- [ ] Mappings table with search, New/Edit (Dialog), and Export
+- [ ] Reconcile tabs (All/Matches/Missing/Conflicts) with diff rows and Apply Selected
+- [ ] Audit & History run list with statuses, durations, and progress bars
+- [ ] KPI computation sourced from existing endpoints; recompute on invalidations
+- [ ] Keep router minimal; render Layout + SyncDashboard on `/`
+- [ ] Hide legacy multi-page nav in UI (keep code during transition)
+- [ ] Accessibility: focus states/labels; responsive layout checks
+- [ ] E2E happy-path tests for single-page flow (Playwright)
+
+## Pending
 - [ ] Integration testing
 - [ ] Performance optimization
 - [ ] User documentation
@@ -136,6 +151,7 @@
 - Starting with database-first approach for solid foundation
 - Will use FastAPI auto-docs for API testing during development
 - Frontend can be developed in parallel once API is stable
+
 ## Recent UI Enhancements
 - Global theme updated with modern blue primary colors, custom shadows, and transitions
 - Sidebar navigation added with icons, responsive mobile toggle, and user profile
@@ -145,3 +161,12 @@
 - Mappings: Activity icons, colored badges for Zammad/Kimai, hover effects on items
 - Conflicts: Expandable cards (custom accordion), status badges, improved actions
 - Audit Logs: Custom table layout, search/filter/sort, export buttons, expandable details
+
+## What Changed in This Update
+- Memory Bank aligned to single-page UI vision:
+  - projectbrief.md: Introduced single-page management UI as a core requirement
+  - productContext.md: Reframed user journeys around the new dashboard sections
+  - systemPatterns.md: Added SPA architecture, section composition, query invalidation map
+  - techContext.md: Locked API shapes, listed UI libraries used by the dashboard
+  - activeContext.md: Set current focus, acceptance criteria, and next steps for the refactor
+  - progress.md: Added Phase 9 with actionable checklist for implementation
