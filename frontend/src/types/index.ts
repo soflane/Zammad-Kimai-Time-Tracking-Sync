@@ -145,7 +145,7 @@ export interface SyncRun {
   entries_synced: number
   conflicts_detected: number
   started_at: string
-  completed_at?: string
+  ended_at?: string
   error_message?: string
 }
 

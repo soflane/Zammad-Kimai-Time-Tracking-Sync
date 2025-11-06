@@ -366,8 +366,8 @@ export default function SyncDashboard() {
   const recentRuns = useMemo(() => 
     syncRuns.slice(0, 3).map(run => ({
       id: `#${run.id}`,
-      status: run.status,
-      duration: run.completed_at ? computeDuration(run.started_at, run.completed_at) : "00:00",
+      status: run.status === 'completed' ? 'success' : run.status === 'running' ? 'running' : 'failed',
+      duration: run.ended_at ? computeDuration(run.started_at, run.ended_at) : "00:00",
       at: new Date(run.started_at).toLocaleString()
     })),
     [syncRuns]
@@ -526,8 +526,8 @@ export default function SyncDashboard() {
                         <div className="text-xs text-muted-foreground">{r.at}</div>
                       </div>
                       <div className="flex items-center gap-3">
-                        <Badge variant={r.status === "success" ? "default" : r.status === "warning" ? "secondary" : "destructive"}>
-                          {r.status}
+                        <Badge variant={r.status === "success" ? "default" : r.status === "running" ? "secondary" : "destructive"}>
+                          {r.status === 'running' ? 'running' : r.status === 'success' ? 'completed' : 'failed'}
                         </Badge>
                         <Badge variant="outline">{r.duration}</Badge>
                       </div>
@@ -729,7 +729,7 @@ export default function SyncDashboard() {
               </CardHeader>
               <CardContent className="space-y-4">
                 {recentRuns.map((r) => {
-                  const progress = r.status === 'completed' ? 100 : r.status === 'running' ? 50 : 0;
+                  const progress = r.status === 'success' ? 100 : r.status === 'running' ? 50 : 0;
                   return (
                     <div key={r.id} className="grid items-center gap-3 rounded-xl border p-3 md:grid-cols-[auto_1fr_auto]">
                       <div className="flex items-center gap-2">
@@ -738,7 +738,7 @@ export default function SyncDashboard() {
                       </div>
                       <Progress value={progress} />
                       <div className="flex items-center gap-2">
-                        <Badge variant={r.status === "success" || r.status === "completed" ? "default" : r.status === "running" ? "secondary" : "destructive"}>{r.status}</Badge>
+                        <Badge variant={r.status === "success" ? "default" : r.status === "running" ? "secondary" : "destructive"}>{r.status === 'running' ? 'running' : r.status === 'success' ? 'completed' : 'failed'}</Badge>
                         <Badge variant="outline">{r.duration}</Badge>
                         <span className="text-xs text-muted-foreground">{r.at}</span>
                       </div>
