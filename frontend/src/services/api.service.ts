@@ -147,6 +147,11 @@ export const syncService = {
   getSyncStatus: async (id: number): Promise<SyncRun> => {
     const response = await api.get(`/sync/runs/${id}`)
     return response.data
+  },
+
+  getKpi: async (): Promise<any> => {
+    const response = await api.get('/sync/kpi')
+    return response.data
   }
 }
 

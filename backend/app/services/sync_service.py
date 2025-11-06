@@ -16,7 +16,7 @@ from app.schemas.conflict import ConflictCreate
 from app.models.mapping import ActivityMapping
 from app.models.sync_run import SyncRun
 from app.constants.conflict_reasons import ReasonCode, explain_reason
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from app.schemas.connector import KimaiConnectorConfig
 from typing import Dict, Any
 import traceback
@@ -272,7 +272,7 @@ Zammad URL: {zammad_url}
                         existing = self.db.query(DBConflict).filter(
                             or_(
                                 DBConflict.ticket_number == z_entry.ticket_number,
-                                and_(DBConflict.activity_name == z_entry.activity_name, DBConflict.zammad_type_id == z_entry.activity_type_id)
+                                DBConflict.activity_name == z_entry.activity_name
                             ),
                             DBConflict.zammad_created_at == z_entry.created_at,
                             DBConflict.zammad_time_minutes == z_minutes,
@@ -415,6 +415,8 @@ Zammad URL: {zammad_url}
             log.info(f"=== Sync completed ===")
             log.info(f"Stats: {stats}")
 
+            return stats
+
         except Exception as e:
             log.error(f"Sync failed: {str(e)}")
             log.error(traceback.format_exc())
@@ -430,4 +432,4 @@ Zammad URL: {zammad_url}
             sync_run.conflicts_detected = stats["conflicts"]
             self.db.commit()
 
-        return stats
+            raise e  # Re-raise to propagate error to endpoint

@@ -36,8 +36,8 @@ import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
-import { connectorService, mappingService, syncService } from "@/services/api.service";
-import type { Connector, ActivityMapping } from "@/types";
+import { connectorService, mappingService, syncService, conflictService, auditService } from "@/services/api.service";
+import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog } from "@/types";
 
 // Utility UI components
 const Pill = ({ ok }: { ok: boolean }) => (
@@ -287,9 +287,20 @@ function MappingDialog({ row, onSuccess }: { row?: ActivityMapping; onSuccess?: 
   );
 }
 
+function computeDuration(start: string, end: string): string {
+  const s = new Date(start);
+  const e = new Date(end);
+  const diff = (e.getTime() - s.getTime()) / 1000 / 60;
+  const minutes = Math.floor(diff);
+  const seconds = Math.round((diff - minutes) * 60);
+  return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+}
+
 // Main Dashboard Component
 export default function SyncDashboard() {
   const [query, setQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("all");
+  const [selectedConflicts, setSelectedConflicts] = useState<Set<number>>(new Set());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -304,40 +315,99 @@ export default function SyncDashboard() {
     queryFn: mappingService.getAll
   });
 
+  const { data: syncRuns = [] } = useQuery<SyncRun[]>({
+    queryKey: ["syncRuns"],
+    queryFn: syncService.getSyncHistory
+  });
+
+  const { data: conflicts = [] } = useQuery<Conflict[]>({
+    queryKey: ["conflicts"],
+    queryFn: conflictService.getAll
+  });
+
+  const { data: auditLogs = [] } = useQuery<AuditLog[]>({
+    queryKey: ["auditLogs"],
+    queryFn: () => auditService.getAll({ limit: 10 })
+  });
+
+  const { data: kpiData } = useQuery({
+    queryKey: ["kpi"],
+    queryFn: syncService.getKpi
+  });
+
   const filteredMappings = useMemo(
     () => mappings.filter((m) => (m.zammad_type_name + m.kimai_activity_name).toLowerCase().includes(query.toLowerCase())),
     [mappings, query]
   );
 
-  // Mock data for demo (replace with real queries)
-  const kpi = [
+  const filteredConflicts = useMemo(() => {
+    switch (activeTab) {
+      case "all":
+        return conflicts;
+      case "conflicts":
+        return conflicts.filter(c => c.resolution_status === 'open');
+      case "missing":
+        return conflicts.filter(c => c.conflict_type?.includes('missing'));
+      case "matches":
+        return conflicts.filter(c => c.conflict_type?.includes('match'));
+      default:
+        return conflicts;
+    }
+  }, [conflicts, activeTab]);
+
+  // Compute KPIs
+  const kpi = useMemo(() => [
     { label: "Active connectors", value: connectors.filter(c => c.is_active).length, icon: Link2 },
     { label: "Mappings", value: mappings.length, icon: Waypoints },
-    { label: "Open conflicts", value: 0, icon: AlertTriangle },
-    { label: "Last sync (UTC)", value: "2025‑11‑05 22:54:37", icon: History }
-  ];
+    { label: "Open conflicts", value: kpiData?.open_conflicts || 0, icon: AlertTriangle },
+    { label: "Last sync (UTC)", value: kpiData?.last_sync ? new Date(kpiData.last_sync).toLocaleString() : "Never", icon: History }
+  ], [connectors, mappings, kpiData]);
 
-  const recentRuns = [
-    { id: "#1276", status: "success", duration: "00:42", at: "2025‑11‑05 22:54:37" },
-    { id: "#1275", status: "success", duration: "00:37", at: "2025‑11‑04 09:12:04" },
-    { id: "#1274", status: "warning", duration: "01:18", at: "2025‑11‑03 17:03:18" }
-  ];
+  const recentRuns = useMemo(() => 
+    syncRuns.slice(0, 3).map(run => ({
+      id: `#${run.id}`,
+      status: run.status,
+      duration: run.completed_at ? computeDuration(run.started_at, run.completed_at) : "00:00",
+      at: new Date(run.started_at).toLocaleString()
+    })),
+    [syncRuns]
+  );
 
-  const chartData = [
-    { day: "Mon", minutes: 132 },
-    { day: "Tue", minutes: 248 },
-    { day: "Wed", minutes: 187 },
-    { day: "Thu", minutes: 210 },
-    { day: "Fri", minutes: 275 },
-    { day: "Sat", minutes: 95 },
-    { day: "Sun", minutes: 60 }
-  ];
+  const chartData = kpiData?.weekly_minutes || [];
+
+  // Resolve mutation for conflicts
+  const resolveMutation = useMutation({
+    mutationFn: (conflictId: number) => conflictService.resolve(conflictId, { resolution_status: 'resolved', resolution_action: 'manual' }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conflicts"] });
+      queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      toast({ title: "Success", description: "Conflict resolved" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to resolve conflict", variant: "destructive" });
+    }
+  });
+
+  // Bulk apply
+  const bulkResolveMutation = useMutation({
+    mutationFn: (ids: number[]) => Promise.all(ids.map(id => conflictService.resolve(id, { resolution_status: 'resolved', resolution_action: 'bulk' }))),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["conflicts"] });
+      queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      setSelectedConflicts(new Set());
+      toast({ title: "Success", description: "Selected conflicts resolved" });
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to resolve conflicts", variant: "destructive" });
+    }
+  });
 
   // Run sync mutation
   const runSyncMutation = useMutation({
     mutationFn: () => syncService.triggerSync(),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["syncRuns"] });
+      queryClient.invalidateQueries({ queryKey: ["conflicts"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
       toast({ title: "Success", description: "Sync completed successfully" });
     },
@@ -552,52 +622,94 @@ export default function SyncDashboard() {
             <SectionHeader
               title="Reconcile"
               description="Match, diff and resolve between systems"
-              actions={<Button size="sm" className="gap-2"><Check className="h-4 w-4"/> Apply selected</Button>}
+              actions={
+                <div className="flex items-center gap-2">
+                  <Button 
+                    size="sm" 
+                    variant="outline"
+                    onClick={() => bulkResolveMutation.mutate(Array.from(selectedConflicts))}
+                    disabled={selectedConflicts.size === 0}
+                    className="gap-2"
+                  >
+                    <Check className="h-4 w-4"/> Apply selected ({selectedConflicts.size})
+                  </Button>
+                </div>
+              }
             />
-            <Tabs defaultValue="all" className="w-full">
+            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
               <TabsList>
-                <TabsTrigger value="all">All</TabsTrigger>
-                <TabsTrigger value="match">Matches</TabsTrigger>
+                <TabsTrigger value="all">All ({conflicts?.length || 0})</TabsTrigger>
+                <TabsTrigger value="matches">Matches</TabsTrigger>
                 <TabsTrigger value="missing">Missing</TabsTrigger>
-                <TabsTrigger value="conflicts">Conflicts</TabsTrigger>
+                <TabsTrigger value="conflicts">Conflicts ({kpi[2]?.value || 0})</TabsTrigger>
               </TabsList>
-              <TabsContent value="all" className="space-y-3">
+              <TabsContent value={activeTab} className="space-y-3">
                 <Card>
                   <CardHeader>
                     <CardTitle>Diff view</CardTitle>
                     <CardDescription>Ticket → Project • Worklog → Timesheet</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-3">
-                    {/* Demo row */}
-                    <div className="rounded-xl border p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="space-y-1">
-                          <div className="font-medium">#2731 · Laptop migration</div>
-                          <p className="text-xs text-muted-foreground">Customer: ACME (aggregated from Zammad org)</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge>match</Badge>
-                          <Badge variant="outline">Zammad</Badge>
-                          <ArrowRight className="h-4 w-4" />
-                          <Badge variant="outline">Kimai</Badge>
-                        </div>
-                      </div>
-                      <Separator className="my-3" />
-                      <div className="grid gap-3 md:grid-cols-3">
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase text-muted-foreground">Source worklog</div>
-                          <div className="text-sm">02:30 · Support</div>
-                        </div>
-                        <div className="space-y-1">
-                          <div className="text-xs uppercase text-muted-foreground">Target timesheet</div>
-                          <div className="text-sm">02:30 · Billable Support</div>
-                        </div>
-                        <div className="flex items-center justify-end gap-2">
-                          <Button variant="outline" size="sm">Ignore</Button>
-                          <Button size="sm">Update</Button>
-                        </div>
-                      </div>
-                    </div>
+                  <CardContent>
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead><Input type="checkbox" checked={selectedConflicts.size === filteredConflicts.length} onChange={(e) => e.target.checked ? setSelectedConflicts(new Set(filteredConflicts.map(c => c.id))) : setSelectedConflicts(new Set())} /></TableHead>
+                          <TableHead>Ticket / Description</TableHead>
+                          <TableHead>Customer / Project</TableHead>
+                          <TableHead>Zammad Time</TableHead>
+                          <TableHead>Kimai Time</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {filteredConflicts.map((conflict) => (
+                          <TableRow key={conflict.id}>
+                            <TableCell>
+                              <Input 
+                                type="checkbox" 
+                                checked={selectedConflicts.has(conflict.id)}
+                                onChange={(e) => {
+                                  const newSet = new Set(selectedConflicts);
+                                  if (e.target.checked) newSet.add(conflict.id); else newSet.delete(conflict.id);
+                                  setSelectedConflicts(newSet);
+                                }}
+                              />
+                            </TableCell>
+                            <TableCell>
+                              <div className="font-medium">{conflict.ticket_number || 'N/A'}</div>
+                              <div className="text-sm text-muted-foreground">{conflict.description || conflict.notes}</div>
+                            </TableCell>
+                            <TableCell>
+                              <div>{conflict.customer_name}</div>
+                              <div className="text-sm text-muted-foreground">{conflict.project_name}</div>
+                            </TableCell>
+                            <TableCell>{conflict.zammad_time_minutes} min</TableCell>
+                            <TableCell>{conflict.kimai_duration_minutes} min</TableCell>
+                            <TableCell><Badge>{conflict.conflict_type || conflict.resolution_status}</Badge></TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex justify-end gap-2">
+                                <Button 
+                                  variant="outline" 
+                                  size="sm" 
+                                  onClick={() => resolveMutation.mutate(conflict.id)}
+                                  disabled={conflict.resolution_status === 'resolved'}
+                                >
+                                  Resolve
+                                </Button>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                        {filteredConflicts.length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                              No {activeTab} found. Run a sync to detect differences.
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </TableBody>
+                    </Table>
                   </CardContent>
                 </Card>
               </TabsContent>
@@ -616,20 +728,28 @@ export default function SyncDashboard() {
                 <CardDescription>Immutable audit trail</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                {recentRuns.map((r, i) => (
-                  <div key={r.id} className="grid items-center gap-3 rounded-xl border p-3 md:grid-cols-[auto_1fr_auto]">
-                    <div className="flex items-center gap-2">
-                      <History className="h-4 w-4" />
-                      <div className="text-sm font-medium">{r.id}</div>
+                {recentRuns.map((r) => {
+                  const progress = r.status === 'completed' ? 100 : r.status === 'running' ? 50 : 0;
+                  return (
+                    <div key={r.id} className="grid items-center gap-3 rounded-xl border p-3 md:grid-cols-[auto_1fr_auto]">
+                      <div className="flex items-center gap-2">
+                        <History className="h-4 w-4" />
+                        <div className="text-sm font-medium">{r.id}</div>
+                      </div>
+                      <Progress value={progress} />
+                      <div className="flex items-center gap-2">
+                        <Badge variant={r.status === "success" || r.status === "completed" ? "default" : r.status === "running" ? "secondary" : "destructive"}>{r.status}</Badge>
+                        <Badge variant="outline">{r.duration}</Badge>
+                        <span className="text-xs text-muted-foreground">{r.at}</span>
+                      </div>
                     </div>
-                    <Progress value={i === 0 ? 100 : i === 1 ? 100 : 80} />
-                    <div className="flex items-center gap-2">
-                      <Badge variant={r.status === "success" ? "default" : r.status === "warning" ? "secondary" : "destructive"}>{r.status}</Badge>
-                      <Badge variant="outline">{r.duration}</Badge>
-                      <span className="text-xs text-muted-foreground">{r.at}</span>
-                    </div>
+                  );
+                })}
+                {syncRuns.length === 0 && (
+                  <div className="text-center text-muted-foreground py-8">
+                    No sync runs yet. Trigger a sync to start tracking.
                   </div>
-                ))}
+                )}
               </CardContent>
             </Card>
           </section>

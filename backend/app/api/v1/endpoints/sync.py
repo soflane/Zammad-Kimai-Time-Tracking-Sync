@@ -17,6 +17,10 @@ from app.schemas.sync import SyncRequest, SyncResponse
 from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import decrypt_data
+from app.models.conflict import Conflict
+from sqlalchemy import func
+from datetime import timedelta
+from zoneinfo import ZoneInfo
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -195,3 +199,50 @@ async def get_sync_runs(
         }
         for sr in sync_runs
     ]
+
+
+@router.get("/kpi")
+async def get_kpi(
+    db: Session = Depends(get_db),
+    current_user: Annotated[User, Depends(get_current_active_user)] = None
+):
+    """Get KPI data for dashboard: open conflicts, last sync, weekly synced minutes."""
+    # Open conflicts count
+    open_conflicts = db.query(Conflict).filter(Conflict.resolution_status != 'resolved').count()
+
+    # Last sync
+    latest_sync = db.query(SyncRun).order_by(SyncRun.start_time.desc()).first()
+    last_sync = latest_sync.start_time.isoformat() if latest_sync else None
+
+    # Weekly synced minutes: sum(time_minutes) group by entry_date for last 7 days where sync_status = 'synced'
+    from app.models.time_entry import TimeEntry
+    seven_days_ago = datetime.now(ZoneInfo('Europe/Brussels')) - timedelta(days=7)
+    weekly_data = db.query(
+        func.date(TimeEntry.entry_date).label('day'),
+        func.sum(TimeEntry.time_minutes).label('minutes')
+    ).filter(
+        TimeEntry.entry_date >= seven_days_ago.date(),
+        TimeEntry.sync_status == 'synced'
+    ).group_by(func.date(TimeEntry.entry_date)).order_by('day').all()
+
+    # Format as list of dicts for recharts
+    chart_data = [
+        {
+            'day': row.day.strftime('%a'),  # Mon, Tue, etc.
+            'minutes': float(row.minutes) or 0
+        }
+        for row in weekly_data
+    ]
+
+    # Fill missing days
+    days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    filled_data = {d: 0 for d in days}
+    for item in chart_data:
+        filled_data[item['day']] = item['minutes']
+    chart_data = [{'day': d, 'minutes': filled_data[d]} for d in days]
+
+    return {
+        'open_conflicts': open_conflicts,
+        'last_sync': last_sync,
+        'weekly_minutes': chart_data
+    }
