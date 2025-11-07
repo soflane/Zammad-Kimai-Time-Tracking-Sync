@@ -51,18 +51,19 @@ class ZammadConnector(BaseConnector):
     async def _request(self, method: str, path: str, **kwargs) -> Dict[str, Any]:
         """Helper to make authenticated requests to Zammad API."""
         try:
-            log.trace(f"Zammad API {method} {path} with params/headers: {kwargs.get('params', 'none')}")
             response = await self.client.request(method, path, headers=self.headers, **kwargs)
-            log.trace(f"Zammad API response for {path}: {response.status_code}")
             response.raise_for_status()
             json_data = response.json()
-            log.trace(f"Zammad API returned {len(json_data)} items for {path}")
+            log.debug(f"Zammad API {method} {path}: {response.status_code}, returned {len(json_data)} items")
             return json_data
         except httpx.HTTPStatusError as e:
-            log.error(f"HTTP error for {e.request.url}: {e.response.status_code} - {e.response.text}")
+            full_url = str(e.request.url)
+            req_body = kwargs.get('json', kwargs.get('params', 'N/A'))
+            log.error(f"Zammad API {method} {full_url} failed: {e.response.status_code}. Request body: {req_body}. Response: {e.response.text}")
             raise
         except httpx.RequestError as e:
-            log.error(f"Request error for {e.request.url}: {e}")
+            full_url = str(e.request.url) if hasattr(e, 'request') and e.request else 'unknown'
+            log.error(f"Zammad request error {method} {full_url}: {e}")
             raise
 
     async def _fetch_user(self, user_id: int) -> Dict[str, Any]:
@@ -119,7 +120,8 @@ class ZammadConnector(BaseConnector):
             # Fetch time accountings for this ticket
             time_accountings = await self.fetch_ticket_time_accountings(ticket["id"], start_date, end_date)
             total_time_accountings += len(time_accountings)
-            log.debug(f"Ticket {ticket['number']} has {len(time_accountings)} time accountings in range")
+            if len(time_accountings) > 0:
+                log.debug(f"Ticket {ticket['number']} has {len(time_accountings)} time accountings in range")
             
             # Create individual normalized entries (NO AGGREGATION)
             for entry in time_accountings:

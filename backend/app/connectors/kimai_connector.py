@@ -449,14 +449,14 @@ class KimaiConnector(BaseConnector):
             if use_global_activities:
                 # Fetch global activities only
                 params["globals"] = "1"
-                log.info("Fetching global activities from Kimai")
+                log.debug("Fetching global activities from Kimai")
             elif default_project_id:
                 # Fetch activities for specific project
                 params["project"] = str(default_project_id)
-                log.info(f"Fetching activities for project {default_project_id} from Kimai")
+                log.debug(f"Fetching activities for project {default_project_id} from Kimai")
             else:
                 # Fetch all visible activities (fallback)
-                log.info("Fetching all visible activities from Kimai")
+                log.debug("Fetching all visible activities from Kimai")
             
             response_data = await self._request("GET", "/api/activities", params=params)
             
@@ -516,10 +516,10 @@ class KimaiConnector(BaseConnector):
             # Filter client-side for exact match on number field
             for customer in (response_data or []):
                 if customer.get("number") == external_number:
-                    log.debug(f"Found customer by number {external_number}: {customer.get('name')} (ID: {customer.get('id')})")
+                    log.trace(f"Found customer by number {external_number}: {customer.get('name')} (ID: {customer.get('id')})")
                     return customer
             
-            log.debug(f"No customer found with exact number: {external_number}")
+            log.trace(f"No customer found with exact number: {external_number}")
             return None
         except httpx.HTTPStatusError as e:
             log.error(f"Error finding customer by number: {e.response.status_code} - {e.response.text}")
@@ -538,10 +538,10 @@ class KimaiConnector(BaseConnector):
             name_lower = name.lower()
             for customer in (response_data or []):
                 if customer.get("name", "").lower() == name_lower:
-                    log.debug(f"Found customer by exact name '{name}': ID {customer.get('id')}")
+                    log.trace(f"Found customer by exact name '{name}': ID {customer.get('id')}")
                     return customer
             
-            log.debug(f"No customer found with exact name: {name}")
+            log.trace(f"No customer found with exact name: {name}")
             return None
         except httpx.HTTPStatusError as e:
             log.error(f"Error finding customer by name: {e.response.status_code} - {e.response.text}")
@@ -559,7 +559,7 @@ class KimaiConnector(BaseConnector):
         """
         try:
             response_data = await self._request("GET", f"/api/customers/{customer_id}")
-            log.debug(f"Fetched customer {customer_id}: {response_data.get('name')}")
+            log.trace(f"Fetched customer {customer_id}: {response_data.get('name')}")
             return response_data
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 404:
@@ -603,7 +603,7 @@ class KimaiConnector(BaseConnector):
         Recommended: globalActivities=true for easier activity assignment
         """
         try:
-            log.debug(f"Kimai create_project payload: {payload}")
+            log.trace(f"Kimai create_project payload: {payload}")
             response_data = await self._request("POST", "/api/projects", json=payload)
             log.info(f"Created Kimai project: {response_data.get('name')} (ID: {response_data.get('id')})")
             return response_data
@@ -626,7 +626,7 @@ class KimaiConnector(BaseConnector):
         """
         try:
             response_data = await self._request("GET", f"/api/projects/{project_id}")
-            log.debug(f"Fetched project {project_id}: globalActivities={response_data.get('globalActivities')}")
+            log.trace(f"Fetched project {project_id}: globalActivities={response_data.get('globalActivities')}")
             return response_data
         except httpx.HTTPStatusError as e:
             log.error(f"Error fetching project {project_id}: {e.response.status_code} - {e.response.text}")
@@ -663,10 +663,10 @@ class KimaiConnector(BaseConnector):
             # Filter client-side for exact match on number field
             for project in (response_data or []):
                 if project.get("number") == project_number:
-                    log.debug(f"Found project by number {project_number}: {project.get('name')} (ID: {project.get('id')})")
+                    log.trace(f"Found project by number {project_number}: {project.get('name')} (ID: {project.get('id')})")
                     return project
             
-            log.debug(f"No project found with exact number: {project_number}")
+            log.trace(f"No project found with exact number: {project_number}")
             return None
         except httpx.HTTPStatusError as e:
             log.error(f"Error finding project by number: {e.response.status_code} - {e.response.text}")
@@ -718,10 +718,10 @@ class KimaiConnector(BaseConnector):
                     tags = parsed_tags
                 
                 if tag in tags:
-                    log.debug(f"Found timesheet with tag '{tag}': ID {timesheet.get('id')}")
+                    log.trace(f"Found timesheet with tag '{tag}': ID {timesheet.get('id')}")
                     return timesheet
             
-            log.debug(f"No timesheet found with tag '{tag}' in range {begin} to {end}")
+            log.trace(f"No timesheet found with tag '{tag}' in range {begin} to {end}")
             return None
             
         except httpx.HTTPStatusError as e:

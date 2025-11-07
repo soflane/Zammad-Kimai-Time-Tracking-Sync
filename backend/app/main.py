@@ -32,11 +32,40 @@ log_level = logging.TRACE if log_level_str == "TRACE" else getattr(logging, log_
 if not logging.getLogger().hasHandlers():
     logging.basicConfig(
         level=log_level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        format='%(asctime)s - %(name)s - %(levelname)-8s - %(message)s'
     )
 
-root = logging.getLogger()
-root.trace("Trace logging enabled at startup (verbose details).") if log_level_str == "TRACE" else root.debug("Debug logging enabled at startup.")
+    root = logging.getLogger()
+
+    # Handle VERBOSE mode and set specific loggers
+    if log_level_str == "VERBOSE":
+        root_level = logging.DEBUG
+        httpcore_level = logging.DEBUG
+        httpx_level = logging.DEBUG
+        connectors_level = logging.TRACE
+        sync_level = logging.DEBUG
+        root.info("VERBOSE mode enabled: HTTP details and connector traces active for debugging.")
+    elif log_level_str == "TRACE":
+        root_level = logging.TRACE
+        httpcore_level = logging.TRACE
+        httpx_level = logging.TRACE
+        connectors_level = logging.TRACE
+        sync_level = logging.TRACE
+    else:
+        root_level = log_level
+        httpcore_level = logging.WARNING
+        httpx_level = logging.WARNING
+        connectors_level = logging.TRACE if log_level_str == "TRACE" else logging.DEBUG
+        sync_level = root_level
+
+    root.setLevel(root_level)
+    logging.getLogger("httpcore").setLevel(httpcore_level)
+    logging.getLogger("httpcore.http11").setLevel(httpcore_level)
+    logging.getLogger("httpx").setLevel(httpx_level)
+    logging.getLogger("app.connectors").setLevel(connectors_level)
+    logging.getLogger("app.services.sync_service").setLevel(sync_level)
+
+    root.trace("Trace logging enabled at startup (verbose details).") if log_level_str == "TRACE" else root.debug("Debug logging enabled at startup.")
 
 app = FastAPI(
     title="Zammad-Kimai Time Tracking Sync",

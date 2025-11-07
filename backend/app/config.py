@@ -14,11 +14,6 @@ class Settings(BaseSettings):
         extra="ignore"
     )
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        if self.debug and self.log_level.upper() != "TRACE":
-            self.log_level = "DEBUG"
-
     # Database
     database_url: str
 
@@ -37,7 +32,6 @@ class Settings(BaseSettings):
     admin_password: str = "changeme"
 
     # Application
-    debug: bool = False
     log_level: str = "INFO"
     api_v1_str: str = "/api/v1"
 

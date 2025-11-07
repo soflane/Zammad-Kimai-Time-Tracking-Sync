@@ -98,7 +98,7 @@ class SyncService:
                 log.error(f"Failed to create customer '{customer_name}': {e}")
                 raise ValueError(f"Customer creation failed: {str(e)}")
         
-        log.debug(f"Using customer '{customer['name']}' (ID: {customer['id']}) for entry {entry.source_id}")
+        log.trace(f"Using customer '{customer['name']}' (ID: {customer['id']}) for entry {entry.source_id}")
         return customer
 
     async def _ensure_project(self, entry: TimeEntryNormalized, customer_id: int) -> Dict[str, Any]:
@@ -145,7 +145,7 @@ class SyncService:
                 log.error(f"Payload was: {payload}")
                 raise ValueError(f"Project creation failed: {str(e)}")
         
-        log.debug(f"Using project '{project['name']}' (ID: {project['id']}) for entry {entry.source_id}")
+        log.trace(f"Using project '{project['name']}' (ID: {project['id']}) for entry {entry.source_id}")
         return project
 
     async def _create_timesheet(self, entry: TimeEntryNormalized, project_id: int, activity_id: int) -> Dict[str, Any]:
