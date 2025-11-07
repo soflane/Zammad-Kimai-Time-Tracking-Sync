@@ -15,6 +15,8 @@ from app.models.conflict import Conflict as DBConflict
 from app.schemas.conflict import ConflictCreate
 from app.models.mapping import ActivityMapping
 from app.models.sync_run import SyncRun
+from app.models.time_entry import TimeEntry
+from app.models.connector import Connector as DBConnector
 from app.constants.conflict_reasons import ReasonCode, explain_reason
 from sqlalchemy import or_, and_
 from app.schemas.connector import KimaiConnectorConfig
@@ -204,6 +206,48 @@ Zammad URL: {zammad_url}
             zammad_normalized_entries = await self.zammad_connector.fetch_time_entries(start_date, end_date)
             stats["zammad_fetched"] = len(zammad_normalized_entries)
 
+            # Get Zammad connector ID
+            zammad_conn_db = self.db.query(DBConnector).filter(DBConnector.type == "zammad", DBConnector.is_active == True).first()
+            if not zammad_conn_db:
+                raise ValueError("No active Zammad connector found")
+            zammad_connector_id = zammad_conn_db.id
+
+            # Persist Zammad entries as pending TimeEntry records
+            source_id_to_te = {}  # source_id -> TimeEntry ID
+            for entry in zammad_normalized_entries:
+                # Check if already exists (idempotency)
+                existing_te = self.db.query(TimeEntry).filter(
+                    TimeEntry.source == 'zammad',
+                    TimeEntry.source_id == entry.source_id
+                ).first()
+                if existing_te:
+                    log.debug(f"TimeEntry already exists for Zammad {entry.source_id}, skipping insert")
+                    source_id_to_te[entry.source_id] = existing_te.id
+                    continue
+
+                te = TimeEntry(
+                    connector_id=zammad_connector_id,
+                    source='zammad',
+                    source_id=entry.source_id,
+                    ticket_number=entry.ticket_number,
+                    ticket_id=entry.ticket_id,
+                    description=entry.description,
+                    time_minutes=entry.duration_sec / 60.0,
+                    activity_type_id=entry.activity_type_id,
+                    activity_name=entry.activity_name,
+                    user_email=entry.user_email,
+                    entry_date=date.fromisoformat(entry.entry_date),
+                    sync_status='pending',
+                    created_at=datetime.now(ZoneInfo('Europe/Brussels')),
+                    updated_at=datetime.now(ZoneInfo('Europe/Brussels'))
+                )
+                self.db.add(te)
+                self.db.flush()  # Flush to get ID without commit
+                source_id_to_te[entry.source_id] = te.id
+                log.debug(f"Created pending TimeEntry ID {te.id} for Zammad {entry.source_id}")
+
+            self.db.commit()  # Commit pending inserts
+
             # 2. Fetch existing entries from Kimai
             kimai_entries = await self.kimai_connector.fetch_time_entries(start_date, end_date)
             stats["kimai_fetched"] = len(kimai_entries)
@@ -221,13 +265,31 @@ Zammad URL: {zammad_url}
             # 4. Process reconciled entries
             for rec in reconciled:
                 stats["processed"] += 1
+                z_entry = rec.zammad_entry if hasattr(rec, 'zammad_entry') else None
+                if not z_entry:
+                    # Skip non-Zammad focused (e.g., missing in Zammad)
+                    stats["skipped"] += 1
+                    continue
+
+                te_id = source_id_to_te.get(z_entry.source_id)
+                if not te_id:
+                    log.warning(f"No TimeEntry found for Zammad {z_entry.source_id}, skipping")
+                    stats["skipped"] += 1
+                    continue
+
+                te = self.db.query(TimeEntry).get(te_id)
+
                 if rec.reconciliation_status == ReconciliationStatus.MATCH:
                     stats["reconciled_matches"] += 1
-                    # No action needed, already synced
+                    # Ensure synced status
+                    if te.sync_status != 'synced':
+                        te.sync_status = 'synced'
+                        te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                        self.db.commit()
+                        log.debug(f"Updated TimeEntry {te_id} to 'synced' for match")
                 elif rec.reconciliation_status == ReconciliationStatus.MISSING_IN_KIMAI:
                     stats["reconciled_missing_kimai"] += 1
                     # Create in Kimai
-                    z_entry = rec.zammad_entry
                     customer_name = self._determine_customer_name(z_entry)
                     customer = await self._ensure_customer(z_entry, customer_name)
                     project = await self._ensure_project(z_entry, customer['id'])
@@ -239,6 +301,10 @@ Zammad URL: {zammad_url}
                         ignore_unmapped = self.kimai_config.get('ignore_unmapped_activities', False)
                         if ignore_unmapped:
                             log.warning(f"Ignoring unmapped activity for Zammad entry {z_entry.source_id} (type_id: {z_entry.activity_type_id})")
+                            te.sync_status = 'error'
+                            te.sync_error = 'Unmapped activity (ignored)'
+                            te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                            self.db.commit()
                             stats["ignored_unmapped"] += 1
                             continue  # Skip creation without conflict
                         
@@ -248,7 +314,7 @@ Zammad URL: {zammad_url}
                             'zammad_type_id': z_entry.activity_type_id,
                         }
                         detail = explain_reason(ReasonCode.UNMAPPED_ACTIVITY, context)
-                        z_minutes = z_entry.duration_sec / 60.0 if hasattr(z_entry, 'duration_sec') else z_entry.time_minutes
+                        z_minutes = z_entry.duration_sec / 60.0
                         customer_name = self._determine_customer_name(z_entry)
                         project_name = f"Ticket {z_entry.ticket_number or z_entry.ticket_id}"
                         
@@ -265,6 +331,10 @@ Zammad URL: {zammad_url}
                         
                         if existing:
                             log.info(f"Duplicate unmapped conflict skipped for ticket {z_entry.ticket_number}, activity {z_entry.activity_name}")
+                            te.sync_status = 'conflict'
+                            te.sync_error = detail
+                            te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                            self.db.commit()
                             stats["skipped_duplicates"] += 1
                             continue
                         
@@ -279,9 +349,14 @@ Zammad URL: {zammad_url}
                             zammad_created_at=z_entry.created_at,
                             zammad_entry_date=z_entry.entry_date,
                             zammad_time_minutes=z_minutes,
+                            time_entry_id=te_id,
                             resolution_status='pending'
                         )
                         self.db.add(conflict)
+                        self.db.commit()
+                        te.sync_status = 'conflict'
+                        te.sync_error = detail
+                        te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
                         self.db.commit()
                         stats["unmapped"] += 1
                         stats["conflicts"] += 1
@@ -290,12 +365,19 @@ Zammad URL: {zammad_url}
                     activity_id = mapping.kimai_activity_id
                     timesheet = await self._create_timesheet(z_entry, project['id'], activity_id)
                     if timesheet['status'] == 'created':
+                        # Update TimeEntry to synced
+                        te.kimai_id = timesheet['id']
+                        te.synced_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                        te.sync_status = 'synced'
+                        te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                        self.db.commit()
                         stats["created"] += 1
+                        log.info(f"Updated TimeEntry {te_id} to 'synced' with Kimai ID {timesheet['id']}")
                     else:
                         # Create conflict for creation error
                         context = {'error_detail': timesheet.get('error', 'Unknown error')}
                         detail = explain_reason(ReasonCode.CREATION_ERROR, context)
-                        z_minutes = z_entry.duration_sec / 60.0 if hasattr(z_entry, 'duration_sec') else (z_entry.time_minutes or 0)
+                        z_minutes = z_entry.duration_sec / 60.0
                         customer_name = self._determine_customer_name(z_entry)
                         project_name = f"Ticket {z_entry.ticket_number or z_entry.ticket_id}"
                         
@@ -309,6 +391,10 @@ Zammad URL: {zammad_url}
                         
                         if existing:
                             log.info(f"Duplicate creation error conflict skipped for ticket {z_entry.ticket_number}")
+                            te.sync_status = 'error'
+                            te.sync_error = detail
+                            te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                            self.db.commit()
                             stats["skipped_duplicates"] += 1
                         else:
                             conflict = DBConflict(
@@ -322,19 +408,23 @@ Zammad URL: {zammad_url}
                                 zammad_created_at=z_entry.created_at,
                                 zammad_entry_date=z_entry.entry_date,
                                 zammad_time_minutes=z_minutes,
+                                time_entry_id=te_id,
                                 resolution_status='pending'
                             )
                             self.db.add(conflict)
+                            self.db.commit()
+                            te.sync_status = 'error'
+                            te.sync_error = detail
+                            te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
                             self.db.commit()
                             stats["conflicts"] += 1
                 elif rec.reconciliation_status == ReconciliationStatus.CONFLICT:
                     stats["reconciled_conflicts"] += 1
                     # Create conflict record
                     # Determine specific reason
-                    z_entry = rec.zammad_entry
                     k_entry = rec.kimai_entry
-                    z_minutes = z_entry.duration_sec / 60.0 if hasattr(z_entry, 'duration_sec') else (z_entry.time_minutes or 0)
-                    k_minutes = k_entry.duration_sec / 60.0 if hasattr(k_entry, 'duration_sec') else (k_entry.time_minutes or 0)
+                    z_minutes = z_entry.duration_sec / 60.0
+                    k_minutes = k_entry.duration_sec / 60.0
                     if abs(z_minutes - k_minutes) > 0.1:  # Tolerance for float
                         reason_code = ReasonCode.TIME_MISMATCH
                         context = {
@@ -363,6 +453,10 @@ Zammad URL: {zammad_url}
                     
                     if existing:
                         log.info(f"Duplicate conflict skipped for ticket {z_entry.ticket_number}")
+                        te.sync_status = 'conflict'
+                        te.sync_error = detail
+                        te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                        self.db.commit()
                         stats["skipped_duplicates"] += 1
                     else:
                         conflict = DBConflict(
@@ -380,13 +474,22 @@ Zammad URL: {zammad_url}
                             kimai_end=getattr(k_entry, 'end', None),
                             kimai_duration_minutes=k_minutes,
                             kimai_id=k_id,
+                            time_entry_id=te_id,
                             resolution_status='pending'
                         )
                         self.db.add(conflict)
                         self.db.commit()
+                        te.sync_status = 'conflict'
+                        te.sync_error = detail
+                        te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                        self.db.commit()
                         stats["conflicts"] += 1
                 else:
                     stats["skipped"] += 1
+                    if te:
+                        te.sync_status = 'skipped'
+                        te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                        self.db.commit()
 
             # Update SyncRun on success
             sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
