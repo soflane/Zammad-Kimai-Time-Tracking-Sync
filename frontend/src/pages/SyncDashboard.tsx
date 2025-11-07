@@ -33,6 +33,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { DialogClose } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
@@ -90,8 +91,49 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
   const [apiToken, setApiToken] = useState("");
   const [name, setName] = useState(item?.name ?? "");
   const [type, setType] = useState<'zammad' | 'kimai'>(item?.type ?? "zammad");
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitAttempted, setSubmitAttempted] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  const validateField = (field: string): string => {
+    switch (field) {
+      case 'name':
+        return !name.trim() ? "Name is required" : "";
+      case 'type':
+        return !type ? "Connector type is required" : "";
+      case 'baseUrl':
+        if (!baseUrl.trim()) return "Base URL is required";
+        try {
+          new URL(baseUrl);
+          return "";
+        } catch {
+          return "Please enter a valid URL (e.g., https://example.com)";
+        }
+      case 'apiToken':
+        return !apiToken.trim() ? "API Token is required" : "";
+      default:
+        return "";
+    }
+  };
+
+  const updateFieldError = (field: string) => {
+    const error = validateField(field);
+    setErrors(prev => ({ ...prev, [field]: error }));
+  };
+
+  const validateForm = (): Record<string, string> => {
+    const newErrors: Record<string, string> = {};
+
+    if (!item) {
+      newErrors.type = validateField('type');
+    }
+    newErrors.name = validateField('name');
+    newErrors.baseUrl = validateField('baseUrl');
+    newErrors.apiToken = validateField('apiToken');
+
+    return newErrors;
+  };
 
   const createMutation = useMutation({
     mutationFn: (data: any) => connectorService.create(data),
@@ -122,6 +164,18 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
   });
 
   const handleSave = () => {
+    const formErrors = validateForm();
+    setErrors(formErrors);
+    setSubmitAttempted(true);
+    if (Object.keys(formErrors).length > 0) {
+      toast({ 
+        title: "Validation Error", 
+        description: "Please fix the errors in the form before saving.", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
     const createData = {
       type,
       name,
@@ -151,13 +205,17 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
   };
 
   const handleOpenChange = (newOpen: boolean) => {
-    if (!newOpen) {
+    if (newOpen) {
+      setErrors({});
+      setSubmitAttempted(false);
+    } else {
       // Reset form on close
       setEnabled(item?.is_active ?? true);
       setBaseUrl(item?.base_url ?? "");
       setApiToken("");
       setName(item?.name ?? "");
       setType(item?.type ?? "zammad");
+      setSubmitAttempted(false);
     }
     setOpen(newOpen);
   };
@@ -175,13 +233,19 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
           <DialogTitle>Configure {item?.name ?? "Connector"}</DialogTitle>
           <DialogDescription>Enter credentials and endpoint details. Secrets are stored encrypted in the service DB.</DialogDescription>
         </DialogHeader>
+        {submitAttempted && Object.keys(errors).length > 0 && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>Please fix the errors below before saving.</AlertDescription>
+          </Alert>
+        )}
         <div className="grid gap-4 py-2">
           {!item && (
             <>
               <div className="grid grid-cols-4 items-center gap-2">
                 <Label className="text-right">Type</Label>
-                <Select value={type} onValueChange={(v: 'zammad' | 'kimai') => setType(v)}>
-                  <SelectTrigger className="col-span-3">
+                <Select value={type} onValueChange={(v: 'zammad' | 'kimai') => { setType(v); updateFieldError('type'); }}>
+                  <SelectTrigger className={`col-span-3 ${errors.type ? 'border-destructive' : ''}`}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -189,10 +253,17 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
                     <SelectItem value="kimai">Kimai</SelectItem>
                   </SelectContent>
                 </Select>
+                {errors.type && <p className="col-span-4 text-sm text-destructive mt-1">{errors.type}</p>}
               </div>
               <div className="grid grid-cols-4 items-center gap-2">
                 <Label className="text-right">Name</Label>
-                <Input className="col-span-3" value={name} onChange={(e) => setName(e.target.value)} />
+                <Input 
+                  className={`col-span-3 ${errors.name ? 'border-destructive' : ''}`} 
+                  value={name} 
+                  onChange={(e) => setName(e.target.value)}
+                  onBlur={() => updateFieldError('name')}
+                />
+                {errors.name && <p className="col-span-4 text-sm text-destructive mt-1">{errors.name}</p>}
               </div>
             </>
           )}
@@ -204,18 +275,36 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
           </div>
           <div className="grid grid-cols-4 items-center gap-2">
             <Label className="text-right">Base URL</Label>
-            <Input className="col-span-3" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+            <Input 
+              className={`col-span-3 ${errors.baseUrl ? 'border-destructive' : ''}`} 
+              value={baseUrl} 
+              onChange={(e) => setBaseUrl(e.target.value)}
+              onBlur={() => updateFieldError('baseUrl')}
+            />
+            {errors.baseUrl && <p className="col-span-4 text-sm text-destructive mt-1">{errors.baseUrl}</p>}
           </div>
           <div className="grid grid-cols-4 items-center gap-2">
             <Label className="text-right">API Token</Label>
-            <Input className="col-span-3" type="password" placeholder="••••••••••" value={apiToken} onChange={(e) => setApiToken(e.target.value)} />
+            <Input 
+              className={`col-span-3 ${errors.apiToken ? 'border-destructive' : ''}`} 
+              type="password" 
+              placeholder="••••••••••" 
+              value={apiToken} 
+              onChange={(e) => setApiToken(e.target.value)}
+              onBlur={() => updateFieldError('apiToken')}
+            />
+            {errors.apiToken && <p className="col-span-4 text-sm text-destructive mt-1">{errors.apiToken}</p>}
           </div>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={handleCancel}>
             Cancel
           </Button>
-          <Button className="gap-2" onClick={handleSave}>
+          <Button 
+            className="gap-2" 
+            onClick={handleSave}
+            disabled={Object.keys(errors).length > 0 || createMutation.isPending || updateMutation.isPending}
+          >
             <BadgeCheck className="h-4 w-4" /> Save
           </Button>
         </DialogFooter>
