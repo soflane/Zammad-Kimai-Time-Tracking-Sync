@@ -55,7 +55,7 @@ if not logging.getLogger().hasHandlers():
         root_level = log_level
         httpcore_level = logging.WARNING
         httpx_level = logging.WARNING
-        connectors_level = logging.TRACE if log_level_str == "TRACE" else logging.DEBUG
+        connectors_level = logging.WARNING if log_level_str == "INFO" else log_level
         sync_level = root_level
 
     root.setLevel(root_level)
