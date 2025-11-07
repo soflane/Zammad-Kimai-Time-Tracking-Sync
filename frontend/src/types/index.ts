@@ -167,6 +167,18 @@ export interface SyncRequest {
   end_date?: string
 }
 
+export interface SyncResponse {
+  status: 'success' | 'failed';
+  message: string;
+  start_date: string;
+  end_date: string;
+  num_processed: number;
+  num_created: number;
+  num_conflicts: number;
+  num_skipped: number;
+  error_detail?: string;
+}
+
 export interface ValidationResponse {
   valid: boolean
   message: string

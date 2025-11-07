@@ -7,7 +7,7 @@ class SyncRequest(BaseModel):
     end_date: Optional[str] = None    # YYYY-MM-DD, use today if not provided
 
 class SyncResponse(BaseModel):
-    status: str  # 'success', 'partial_success', 'error'
+    status: str  # 'success', 'failed'
     message: str
     start_date: str
     end_date: str
@@ -15,3 +15,4 @@ class SyncResponse(BaseModel):
     num_created: int = 0
     num_conflicts: int = 0
     num_skipped: int = 0
+    error_detail: Optional[str] = None  # Detailed error message when status is 'failed'

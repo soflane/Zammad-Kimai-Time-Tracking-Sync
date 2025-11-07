@@ -37,7 +37,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
 import { connectorService, mappingService, syncService, conflictService, auditService } from "@/services/api.service";
-import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog } from "@/types";
+import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse } from "@/types";
 
 // Utility UI components
 const Pill = ({ ok }: { ok: boolean }) => (
@@ -403,16 +403,29 @@ export default function SyncDashboard() {
   });
 
   // Run sync mutation
-  const runSyncMutation = useMutation({
+  const runSyncMutation = useMutation<SyncResponse>({
     mutationFn: () => syncService.triggerSync(),
-    onSuccess: () => {
+    onSuccess: (response: SyncResponse) => {
       queryClient.invalidateQueries({ queryKey: ["syncRuns"] });
       queryClient.invalidateQueries({ queryKey: ["conflicts"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
-      toast({ title: "Success", description: "Sync completed successfully" });
+      
+      if (response.status === 'failed') {
+        toast({ 
+          title: "Sync Failed", 
+          description: response.error_detail || "Sync encountered an error",
+          variant: "destructive" 
+        });
+      } else {
+        toast({ 
+          title: "Sync Completed", 
+          description: response.message || `Successfully synced ${response.num_created} entries`
+        });
+      }
     },
-    onError: () => {
-      toast({ title: "Error", description: "Sync failed", variant: "destructive" });
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.detail || error.message || 'Sync failed';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
     }
   });
 

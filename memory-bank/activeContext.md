@@ -39,7 +39,20 @@
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented. **Latest: Enhanced sync with marker-based idempotency, article timestamps, and improved duplicate prevention (January 2025).**
 
 ## Recent Actions (Most Recent First)
-1. **Fixed Kimai Timesheet Creation 400 Error (November 2025)**:
+1. **Sync Error Handling Refactor (November 2025)**:
+   - **Problem**: Silent failures (e.g., invalid Zammad URL) marked sync as "completed" with 0 entries; no UI feedback; excessive DEBUG logs.
+   - **Root Cause**: Zammad connector caught exceptions and returned empty lists; sync continued without error propagation.
+   - **Fixes**:
+     - `backend/app/connectors/zammad_connector.py`: Removed try-catch in `fetch_tickets_by_date()`; now raises `httpx.RequestError`/`HTTPStatusError`.
+     - `backend/app/services/sync_service.py`: Added error classification (connection, auth, permissions, timeouts); raises `ValueError` with user-friendly messages; optimized logging (INFO milestones, DEBUG traces).
+     - `backend/app/schemas/sync.py`: Added `error_detail` to `SyncResponse`.
+     - `backend/app/api/v1/endpoints/sync.py`: Returns structured `SyncResponse` (status: 'failed', error_detail) instead of HTTP exceptions.
+     - Frontend (`frontend/src/types/index.ts`, `api.service.ts`, `SyncDashboard.tsx`): Updated types/service/mutation to handle `SyncResponse`; toast shows specific errors (e.g., "Connection error: Invalid URL").
+   - **Impact**: Clear UI feedback for failures; sync_run.status='failed'; cleaner logs; no more false "completed" status.
+   - **Testing**: Invalid URL now shows "Sync Failed: Connection error: Invalid URL or network issue"; valid sync shows entry count.
+   - **Compliance**: Maintains API contract; backward compatible; no schema migrations.
+
+2. **Fixed Kimai Timesheet Creation 400 Error (November 2025)**:
    - **Problem**: 400 Bad Request on POST /api/timesheets due to "tags" sent as JSON array instead of comma-separated string.
    - **Root Cause**: Sync service set tags = ["source:zammad", "zid:{id}", "ticket:{num}"], but Kimai expects string like "source:zammad".
    - **Fix** (`backend/app/services/sync_service.py`):
@@ -331,15 +344,15 @@ Authentication system, base connector interface, Zammad connector, Kimai connect
 
 UI single-page refactor (frontend):
 - [x] Create SyncDashboard component (frontend/src/pages/SyncDashboard.tsx) implementing the five anchored sections
-- [x] Add sticky top bar with “Schedule” and “Run sync now” wired to existing sync endpoints
-- [ ] Implement Connectors cards with Configure (Dialog), Test Connection, and Re-auth using api.service.ts
-- [ ] Implement Mappings table with search, New/Edit (Dialog), and Export
-- [ ] Implement Reconcile section with tabs (All/Matches/Missing/Conflicts), diff rows, and Apply Selected action
-- [ ] Implement Audit & History run list with statuses and durations
-- [ ] Establish TanStack Query keys and invalidation rules listed above
-- [ ] Keep router minimal: /login and protected / rendering Layout + SyncDashboard
-- [ ] Remove or hide legacy multi-page nav (leave code for now; route to SyncDashboard)
-- [ ] Visual polish: lucide icons, recharts area chart, motion micro-animations
+- [x] Add sticky top bar with "Schedule" and "Run sync now" wired to existing sync endpoints
+- [x] Implement Connectors cards with Configure (Dialog), Test Connection, and Re-auth using api.service.ts
+- [x] Implement Mappings table with search, New/Edit (Dialog), and Export
+- [x] Implement Reconcile section with tabs (All/Matches/Missing/Conflicts), diff rows, and Apply Selected action
+- [x] Implement Audit & History run list with statuses and durations
+- [x] Establish TanStack Query keys and invalidation rules listed above
+- [x] Keep router minimal: /login and protected / rendering Layout + SyncDashboard
+- [x] Remove or hide legacy multi-page nav (leave code for now; route to SyncDashboard)
+- [x] Visual polish: lucide icons, recharts area chart, motion micro-animations
 
 Notes:
 - Do not change API shapes; use existing types and services

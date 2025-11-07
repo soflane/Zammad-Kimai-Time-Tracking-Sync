@@ -36,11 +36,24 @@ async def run_sync(
     end_d = date.today().isoformat() if not request.end_date else request.end_date
     start_d = (date.today() - timedelta(days=30)).isoformat() if not request.start_date else request.start_date
     
-    # Fetch active connectors
+    # Fetch active connectors once
     zammad_conn = db.query(DBConnector).filter(DBConnector.type == "zammad", DBConnector.is_active == True).first()
     kimai_conn = db.query(DBConnector).filter(DBConnector.type == "kimai", DBConnector.is_active == True).first()
     
     if not zammad_conn or not kimai_conn:
+        # Create SyncRun for no connectors case
+        sync_run = SyncRun(
+            trigger_type='manual',
+            start_time=datetime.now(ZoneInfo('Europe/Brussels')),
+            status='failed',
+            error_message="No active Zammad and Kimai connectors configured",
+            entries_synced=0,
+            entries_failed=1,
+            conflicts_detected=0
+        )
+        db.add(sync_run)
+        db.commit()
+        
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Active Zammad and Kimai connectors must be configured and active."
@@ -63,31 +76,8 @@ async def run_sync(
     db.add(sync_run)
     db.commit()
     sync_run_id = sync_run.id
-
-    # Fetch active connectors
-    zammad_conn = db.query(DBConnector).filter(DBConnector.type == "zammad", DBConnector.is_active == True).first()
-    kimai_conn = db.query(DBConnector).filter(DBConnector.type == "kimai", DBConnector.is_active == True).first()
-    
-    if not zammad_conn or not kimai_conn:
-        # Update SyncRun for no connectors
-        sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
-        sync_run.status = 'failed'
-        sync_run.error_message = "No active Zammad and Kimai connectors configured"
-        sync_run.entries_synced = 0
-        sync_run.entries_failed = 1
-        sync_run.conflicts_detected = 0
-        db.commit()
-        
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Active Zammad and Kimai connectors must be configured and active."
-        )
     
     log.info(f"Sync request received for {start_d} to {end_d}, run_id: {sync_run_id}")
-    
-    # Decrypt tokens
-    zammad_token = decrypt_data(zammad_conn.api_token)
-    kimai_token = decrypt_data(kimai_conn.api_token)
     
     # Instantiate connectors properly with settings (same pattern as get_connector_instance)
     log.debug("Instantiating Zammad connector")
@@ -119,20 +109,12 @@ async def run_sync(
 
     try:
         log.info(f"Starting sync process for period {start_d} to {end_d}, run_id: {sync_run_id}")
-        stats = await sync_service.sync_time_entries(start_d, end_d, trigger_type='manual')
+        stats = await sync_service.sync_time_entries(start_d, end_d, sync_run, trigger_type='manual')
         
-        # Update SyncRun on success
-        sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
-        sync_run.status = 'completed'
-        sync_run.entries_synced = stats["created"]
-        sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0)
-        sync_run.conflicts_detected = stats["conflicts"]
-        db.commit()
-
-        log.info(f"Sync completed successfully: processed={stats['processed']}, created={stats['created']}, skipped={stats['skipped']}, conflicts={stats['conflicts']}")
+        log.info(f"Sync completed: processed={stats['processed']}, created={stats['created']}, skipped={stats['skipped']}, conflicts={stats['conflicts']}")
         return SyncResponse(
             status="success",
-            message=f"Sync completed for {start_d} to {end_d}",
+            message=f"Successfully synced {stats['created']} entries",
             start_date=start_d,
             end_date=end_d,
             num_processed=stats["processed"],
@@ -141,38 +123,37 @@ async def run_sync(
             num_conflicts=stats["conflicts"]
         )
     except ValueError as ve:
-        log.error(f"ValueError during sync: {str(ve)}")
-        log.error(f"Stack trace: {traceback.format_exc()}")
+        # ValueError is raised by sync_service with user-friendly error messages
+        error_msg = str(ve)
+        log.error(f"Sync failed: {error_msg}")
         
-        # Update SyncRun on validation error
-        sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
-        sync_run.status = 'failed'
-        sync_run.error_message = f"Validation error: {str(ve)}"
-        sync_run.entries_synced = 0
-        sync_run.entries_failed = 1
-        sync_run.conflicts_detected = 0
-        db.commit()
-        
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, 
-            detail=f"Sync validation error: {str(ve)}"
+        return SyncResponse(
+            status="failed",
+            message="Sync failed",
+            start_date=start_d,
+            end_date=end_d,
+            num_processed=0,
+            num_created=0,
+            num_skipped=0,
+            num_conflicts=0,
+            error_detail=error_msg
         )
     except Exception as e:
-        log.error(f"Unexpected error during sync: {str(e)}")
-        log.error(f"Stack trace: {traceback.format_exc()}")
+        # Unexpected errors - should be rare after sync_service improvements
+        error_msg = f"Unexpected error: {str(e)}"
+        log.error(f"Unexpected error during sync: {error_msg}")
+        log.debug(f"Stack trace: {traceback.format_exc()}")
         
-        # Update SyncRun on unexpected error
-        sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
-        sync_run.status = 'failed'
-        sync_run.error_message = str(e)
-        sync_run.entries_synced = 0
-        sync_run.entries_failed = 1
-        sync_run.conflicts_detected = 0
-        db.commit()
-        
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, 
-            detail=f"Sync failed: {str(e)}"
+        return SyncResponse(
+            status="failed",
+            message="Sync failed",
+            start_date=start_d,
+            end_date=end_d,
+            num_processed=0,
+            num_created=0,
+            num_skipped=0,
+            num_conflicts=0,
+            error_detail=error_msg
         )
 
 @router.get("/runs", response_model=list[dict])

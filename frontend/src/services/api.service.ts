@@ -14,6 +14,7 @@ import type {
   AuditLog,
   SyncRun,
   SyncRequest,
+  SyncResponse,
   ValidationResponse,
   Activity
 } from '@/types'
@@ -134,7 +135,7 @@ export const conflictService = {
 
 // Sync
 export const syncService = {
-  triggerSync: async (request: SyncRequest = {}): Promise<SyncRun> => {
+  triggerSync: async (request: SyncRequest = {}): Promise<SyncResponse> => {
     const response = await api.post('/sync/run', request)
     return response.data
   },

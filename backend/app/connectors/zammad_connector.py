@@ -91,7 +91,7 @@ class ZammadConnector(BaseConnector):
     async def fetch_time_entries(self, start_date: str, end_date: str) -> List[TimeEntryNormalized]:
         """Fetches individual time entries from Zammad (not aggregated)."""
         log.info(f"Fetching Zammad time entries for date range: {start_date} to {end_date}")
-        # Fetch all tickets updated/created in the date range
+        # Fetch all tickets updated/created in the date range (raises on connection errors)
         tickets = await self.fetch_tickets_by_date(start_date, end_date)
         log.info(f"Found {len(tickets)} tickets in date range")
         
@@ -385,30 +385,32 @@ class ZammadConnector(BaseConnector):
             raise
 
     async def fetch_tickets_by_date(self, start_date: str, end_date: str) -> List[Dict[str, Any]]:
-        """Fetches tickets updated or created within the specified date range."""
-        try:
-            log.debug(f"Searching Zammad tickets for date range: {start_date} to {end_date}")
-            # Zammad search API to find tickets updated in the date range
-            # Using search endpoint: /api/v1/tickets/search
-            params = {
-                "query": f"updated_at:[{start_date} TO {end_date}]",
-                "limit": 1000,  # Adjust based on expected volume
-                "expand": True
-            }
-            response_data = await self._request("GET", "/api/v1/tickets/search", params=params)
-            
-            # Response should be a list of tickets or contain a 'tickets' key
-            if isinstance(response_data, list):
-                log.info(f"Zammad search returned {len(response_data)} tickets")
-                return response_data
-            elif isinstance(response_data, dict) and "tickets" in response_data:
-                log.info(f"Zammad search returned {len(response_data['tickets'])} tickets")
-                return response_data["tickets"]
-            else:
-                log.warning(f"Unexpected response format from Zammad tickets search: {type(response_data)}")
-                return []
-        except Exception as e:
-            log.error(f"Error fetching tickets by date: {e}")
+        """Fetches tickets updated or created within the specified date range.
+        
+        Raises:
+            httpx.RequestError: For connection errors (DNS, network issues)
+            httpx.HTTPStatusError: For HTTP errors (401, 404, 500, etc.)
+            Exception: For other unexpected errors
+        """
+        log.debug(f"Searching Zammad tickets for date range: {start_date} to {end_date}")
+        # Zammad search API to find tickets updated in the date range
+        # Using search endpoint: /api/v1/tickets/search
+        params = {
+            "query": f"updated_at:[{start_date} TO {end_date}]",
+            "limit": 1000,  # Adjust based on expected volume
+            "expand": True
+        }
+        response_data = await self._request("GET", "/api/v1/tickets/search", params=params)
+        
+        # Response should be a list of tickets or contain a 'tickets' key
+        if isinstance(response_data, list):
+            log.info(f"Found {len(response_data)} tickets in date range")
+            return response_data
+        elif isinstance(response_data, dict) and "tickets" in response_data:
+            log.info(f"Found {len(response_data['tickets'])} tickets in date range")
+            return response_data["tickets"]
+        else:
+            log.warning(f"Unexpected response format from Zammad tickets search: {type(response_data)}")
             return []
 
     async def fetch_organization(self, org_id: int) -> Optional[Dict[str, Any]]:

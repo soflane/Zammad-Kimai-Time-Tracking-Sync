@@ -178,21 +178,11 @@ Zammad URL: {zammad_url}
             log.error(f"Failed to create timesheet for {entry.source_id}: {e}")
             return {'status': 'error', 'error': str(e)}
 
-    async def sync_time_entries(self, start_date: str, end_date: str, trigger_type: str = 'manual') -> dict:
+    async def sync_time_entries(self, start_date: str, end_date: str, sync_run: SyncRun, trigger_type: str = 'manual') -> dict:
         """
         Performs a full synchronization cycle for time entries within the given date range.
         Returns stats: {'processed': int, 'created': int, 'conflicts': int}
         """
-        # Create SyncRun record
-        sync_run = SyncRun(
-            trigger_type=trigger_type,
-            start_time=datetime.now(ZoneInfo('Europe/Brussels')),
-            status='running'
-        )
-        self.db.add(sync_run)
-        self.db.commit()
-        sync_run_id = sync_run.id
-
         stats = {
             "processed": 0,
             "created": 0,
@@ -208,19 +198,14 @@ Zammad URL: {zammad_url}
             "skipped_duplicates": 0
         }
         try:
-            log.debug(f"SyncService.sync_time_entries called with period {start_date} to {end_date}, trigger: {trigger_type}, run_id: {sync_run_id}")
-            log.info(f"=== Starting sync from {start_date} to {end_date} ===")
+            log.info(f"Starting sync: {start_date} to {end_date} (run_id: {sync_run.id})")
 
             # 1. Fetch entries from Zammad (already normalized by connector)
-            log.debug("Fetching Zammad entries...")
             zammad_normalized_entries = await self.zammad_connector.fetch_time_entries(start_date, end_date)
-            log.debug(f"Zammad entries fetched: {len(zammad_normalized_entries)}")
             stats["zammad_fetched"] = len(zammad_normalized_entries)
 
             # 2. Fetch existing entries from Kimai
-            log.debug("Fetching Kimai entries...")
             kimai_entries = await self.kimai_connector.fetch_time_entries(start_date, end_date)
-            log.debug(f"Kimai entries fetched: {len(kimai_entries)}")
             stats["kimai_fetched"] = len(kimai_entries)
 
             # Update fetched count
@@ -228,7 +213,6 @@ Zammad URL: {zammad_url}
             self.db.commit()
 
             # 3. Reconcile entries
-            log.debug("Reconciling entries...")
             reconciled = await self.reconciliation_service.reconcile_entries(
                 zammad_entries=zammad_normalized_entries,
                 kimai_entries=kimai_entries
@@ -408,28 +392,41 @@ Zammad URL: {zammad_url}
             sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
             sync_run.status = 'completed'
             sync_run.entries_synced = stats["created"]
-            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0)  # Approximate
+            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0)
             sync_run.conflicts_detected = stats["conflicts"]
             self.db.commit()
 
-            log.info(f"=== Sync completed ===")
-            log.info(f"Stats: {stats}")
+            log.info(f"Sync completed: {stats['created']} created, {stats['conflicts']} conflicts, {stats['skipped']} skipped")
 
             return stats
 
         except Exception as e:
-            log.error(f"Sync failed: {str(e)}")
-            log.error(traceback.format_exc())
+            # Determine error type for better user feedback
+            error_type = "Unknown error"
+            if "getaddrinfo failed" in str(e) or "Name or service not known" in str(e):
+                error_type = "Connection error: Invalid URL or network issue"
+            elif "401" in str(e) or "Unauthorized" in str(e):
+                error_type = "Authentication error: Invalid API token"
+            elif "403" in str(e) or "Forbidden" in str(e):
+                error_type = "Permission error: Insufficient API permissions"
+            elif "timeout" in str(e).lower():
+                error_type = "Timeout error: Server not responding"
+            else:
+                error_type = f"Sync error: {str(e)}"
+            
+            log.error(f"Sync failed - {error_type}")
+            log.debug(traceback.format_exc())
+            
             if "error" not in stats:
-                stats["error"] = str(e)
+                stats["error"] = error_type
             
             # Update SyncRun on failure
             sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
             sync_run.status = 'failed'
-            sync_run.error_message = str(e)
+            sync_run.error_message = error_type
             sync_run.entries_synced = stats["created"]
-            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0) + 1  # +1 for overall failure
+            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0) + 1
             sync_run.conflicts_detected = stats["conflicts"]
             self.db.commit()
 
-            raise e  # Re-raise to propagate error to endpoint
+            raise ValueError(error_type)  # Raise with user-friendly message
