@@ -12,6 +12,7 @@ import {
   History,
   Link2,
   Play,
+  Plus,
   RefreshCw,
   Settings,
   Tags,
@@ -33,6 +34,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Progress } from "@/components/ui/progress";
+import { DialogClose } from "@/components/ui/dialog";
 import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
@@ -82,6 +84,7 @@ function SectionHeader({
 
 // Connector Dialog
 function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: () => void }) {
+  const [open, setOpen] = useState(false);
   const [enabled, setEnabled] = useState(item?.is_active ?? true);
   const [baseUrl, setBaseUrl] = useState(item?.base_url ?? "");
   const [apiToken, setApiToken] = useState("");
@@ -96,6 +99,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
       queryClient.invalidateQueries({ queryKey: ["connectors"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
       toast({ title: "Success", description: "Connector created successfully" });
+      setOpen(false);
       onSuccess?.();
     },
     onError: () => {
@@ -109,6 +113,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
       queryClient.invalidateQueries({ queryKey: ["connectors"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
       toast({ title: "Success", description: "Connector updated successfully" });
+      setOpen(false);
       onSuccess?.();
     },
     onError: () => {
@@ -141,11 +146,28 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
     }
   };
 
+  const handleCancel = () => {
+    setOpen(false);
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    if (!newOpen) {
+      // Reset form on close
+      setEnabled(item?.is_active ?? true);
+      setBaseUrl(item?.base_url ?? "");
+      setApiToken("");
+      setName(item?.name ?? "");
+      setType(item?.type ?? "zammad");
+    }
+    setOpen(newOpen);
+  };
+
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-2">
-          <Settings className="h-4 w-4" /> {item ? "Configure" : "Add Connector"}
+          {item ? <Settings className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+          {item ? "Configure" : "Add Connector"}
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-xl">
@@ -190,7 +212,9 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
           </div>
         </div>
         <DialogFooter>
-          <Button variant="ghost">Cancel</Button>
+          <Button variant="ghost" onClick={handleCancel}>
+            Cancel
+          </Button>
           <Button className="gap-2" onClick={handleSave}>
             <BadgeCheck className="h-4 w-4" /> Save
           </Button>
@@ -556,28 +580,44 @@ export default function SyncDashboard() {
             <SectionHeader
               title="Connectors"
               description="Authorize and configure integrations"
-              actions={<Button variant="outline" size="sm" className="gap-2"><UploadCloud className="h-4 w-4"/> Test connection</Button>}
+              actions={
+                <div className="flex items-center gap-2">
+                  <ConnectorDialog />
+                  <Button variant="outline" size="sm" className="gap-2">
+                    <RefreshCw className="h-4 w-4" /> Test All
+                  </Button>
+                </div>
+              }
             />
-            <div className="grid gap-4 md:grid-cols-2">
-              {connectors.map((c) => (
-                <Card key={c.id} className="shadow-sm">
-                  <CardHeader>
-                    <CardTitle className="flex items-center justify-between text-base">
-                      <span className="flex items-center gap-2"><Link2 className="h-4 w-4"/> {c.name}</span>
-                      <Badge variant={c.is_active ? "default" : "destructive"}>{c.is_active ? "Enabled" : "Disabled"}</Badge>
-                    </CardTitle>
-                    <CardDescription>{c.base_url}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="flex items-center justify-between">
-                    <div className="text-sm text-muted-foreground">Connected</div>
-                    <div className="flex items-center gap-2">
-                      <ConnectorDialog item={c} />
-                      <Button variant="ghost" size="sm" className="gap-2"><RefreshCw className="h-4 w-4"/> Re-auth</Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            {connectors.length === 0 ? (
+              <Card className="flex flex-col items-center justify-center p-8 text-center">
+                <UploadCloud className="h-12 w-12 text-muted-foreground mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No connectors yet</h3>
+                <p className="text-sm text-muted-foreground mb-4">Get started by adding your first integration.</p>
+                <ConnectorDialog />
+              </Card>
+            ) : (
+              <div className="grid gap-4 md:grid-cols-2">
+                {connectors.map((c) => (
+                  <Card key={c.id} className="shadow-sm">
+                    <CardHeader>
+                      <CardTitle className="flex items-center justify-between text-base">
+                        <span className="flex items-center gap-2"><Link2 className="h-4 w-4"/> {c.name}</span>
+                        <Badge variant={c.is_active ? "default" : "destructive"}>{c.is_active ? "Enabled" : "Disabled"}</Badge>
+                      </CardTitle>
+                      <CardDescription>{c.base_url}</CardDescription>
+                    </CardHeader>
+                    <CardContent className="flex items-center justify-between">
+                      <div className="text-sm text-muted-foreground">Connected</div>
+                      <div className="flex items-center gap-2">
+                        <ConnectorDialog item={c} />
+                        <Button variant="ghost" size="sm" className="gap-2"><RefreshCw className="h-4 w-4"/> Re-auth</Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
           </section>
 
           {/* MAPPINGS */}
@@ -691,7 +731,7 @@ export default function SyncDashboard() {
                             </TableCell>
                             <TableCell>
                               <div className="font-medium">{conflict.ticket_number || 'N/A'}</div>
-                              <div className="text-sm text-muted-foreground">{conflict.description || conflict.notes}</div>
+                              <div className="text-sm text-muted-foreground">{conflict.notes || 'N/A'}</div>
                             </TableCell>
                             <TableCell>
                               <div>{conflict.customer_name}</div>
