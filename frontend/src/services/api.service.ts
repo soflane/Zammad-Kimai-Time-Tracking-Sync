@@ -78,6 +78,11 @@ export const connectorService = {
     return response.data
   },
 
+  testConnection: async (request: any): Promise<ValidationResponse> => {
+    const response = await api.post('/connectors/test', request)
+    return response.data
+  },
+
   getActivities: async (id: number): Promise<Activity[]> => {
     const response = await api.get(`/connectors/${id}/activities`)
     return response.data

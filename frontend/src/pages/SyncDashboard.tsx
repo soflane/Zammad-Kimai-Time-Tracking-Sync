@@ -40,6 +40,7 @@ import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
 import { connectorService, mappingService, syncService, conflictService, auditService } from "@/services/api.service";
+import type { ValidationResponse } from "@/types";
 import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse } from "@/types";
 
 // Utility UI components
@@ -93,6 +94,8 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
   const [type, setType] = useState<'zammad' | 'kimai'>(item?.type ?? "zammad");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
+  const [isVerified, setIsVerified] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -121,6 +124,37 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
     const error = validateField(field);
     setErrors(prev => ({ ...prev, [field]: error }));
   };
+
+  const resetVerification = () => {
+    setIsVerified(false);
+    setTestError(null);
+  };
+
+  const testMutation = useMutation({
+    mutationFn: () => {
+      const request = item 
+        ? { id: item.id, base_url: baseUrl, api_token: apiToken || undefined }
+        : { type, base_url: baseUrl, api_token: apiToken };
+      return connectorService.testConnection(request);
+    },
+    onSuccess: (data: ValidationResponse) => {
+      setTestError(null);
+      if (data.valid) {
+        setIsVerified(true);
+        toast({ title: "Success", description: data.message });
+      } else {
+        setIsVerified(false);
+        setTestError(data.message);
+        toast({ title: "Test Failed", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (error: any) => {
+      setIsVerified(false);
+      const errorMsg = error.response?.data?.message || error.message || 'Test failed';
+      setTestError(errorMsg);
+      toast({ title: "Test Error", description: errorMsg, variant: "destructive" });
+    }
+  });
 
   const validateForm = (): Record<string, string> => {
     const newErrors: Record<string, string> = {};
@@ -208,6 +242,8 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
     if (newOpen) {
       setErrors({});
       setSubmitAttempted(false);
+      setIsVerified(false);
+      setTestError(null);
     } else {
       // Reset form on close
       setEnabled(item?.is_active ?? true);
@@ -216,6 +252,8 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
       setName(item?.name ?? "");
       setType(item?.type ?? "zammad");
       setSubmitAttempted(false);
+      setIsVerified(false);
+      setTestError(null);
     }
     setOpen(newOpen);
   };
@@ -278,7 +316,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
             <Input 
               className={`col-span-3 ${errors.baseUrl ? 'border-destructive' : ''}`} 
               value={baseUrl} 
-              onChange={(e) => setBaseUrl(e.target.value)}
+              onChange={(e) => { setBaseUrl(e.target.value); resetVerification(); }}
               onBlur={() => updateFieldError('baseUrl')}
             />
             {errors.baseUrl && <p className="col-span-4 text-sm text-destructive mt-1">{errors.baseUrl}</p>}
@@ -290,15 +328,30 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
               type="password" 
               placeholder="••••••••••" 
               value={apiToken} 
-              onChange={(e) => setApiToken(e.target.value)}
+              onChange={(e) => { setApiToken(e.target.value); resetVerification(); }}
               onBlur={() => updateFieldError('apiToken')}
             />
             {errors.apiToken && <p className="col-span-4 text-sm text-destructive mt-1">{errors.apiToken}</p>}
           </div>
+          {(isVerified || testError) && (
+            <div className="grid grid-cols-4 items-center gap-2">
+              {isVerified && <p className="col-span-4 text-sm text-green-600 mt-1 flex items-center"><Check className="h-3 w-3 mr-1" /> Verified connection</p>}
+              {testError && <p className="col-span-4 text-sm text-destructive mt-1">{testError}</p>}
+            </div>
+          )}
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={handleCancel}>
             Cancel
+          </Button>
+          <Button 
+            variant="outline" 
+            className="gap-2" 
+            onClick={() => testMutation.mutate()}
+            disabled={!!errors.baseUrl || !!errors.apiToken || !baseUrl.trim() || !apiToken.trim() || testMutation.isPending}
+          >
+            <RefreshCw className={`h-4 w-4 ${testMutation.isPending ? 'animate-spin' : ''}`} />
+            {testMutation.isPending ? 'Testing...' : 'Test Connection'}
           </Button>
           <Button 
             className="gap-2" 

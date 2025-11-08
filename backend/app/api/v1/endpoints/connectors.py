@@ -13,6 +13,12 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import encrypt_data, decrypt_data
 
+class TestConnectorRequest(BaseModel):
+    id: Optional[int] = None
+    type: Optional[str] = None
+    base_url: Optional[HttpUrl] = None
+    api_token: Optional[str] = None
+
 import logging
 log = logging.getLogger(__name__)
 
@@ -155,14 +161,78 @@ async def delete_connector(
     db.commit()
     return
 
+@router.post("/test", response_model=ConnectorValidationResult)
+async def test_connector_connection(
+    request: TestConnectorRequest,
+    current_user: Annotated[User, Depends(get_current_active_user)],
+    db: Session = Depends(get_db)
+):
+    """
+    Tests a connector connection. For new: provide type, base_url, api_token.
+    For existing: provide id, optionally override base_url/api_token.
+    """
+    if request.id:
+        # Existing connector
+        db_connector = db.query(DBConnector).filter(DBConnector.id == request.id).first()
+        if db_connector is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found")
+        
+        # Override if provided
+        if request.base_url:
+            db_connector.base_url = str(request.base_url)
+        if request.api_token:
+            db_connector.api_token = encrypt_data(request.api_token)
+        
+        try:
+            connector_instance = await get_connector_instance(db_connector)
+            is_valid = await connector_instance.validate_connection()
+            if is_valid:
+                return ConnectorValidationResult(valid=True, message="Connection successful!")
+            else:
+                return ConnectorValidationResult(valid=False, message="Connection failed. Check credentials or URL.")
+        except Exception as e:
+            return ConnectorValidationResult(valid=False, message=f"Validation error: {str(e)}")
+    else:
+        # New connector
+        if not all([request.type, request.base_url, request.api_token]):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="For new connectors, type, base_url, and api_token are required."
+            )
+        
+        if request.type not in CONNECTOR_TYPES:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Unsupported connector type: {request.type}"
+            )
+        
+        # Temp config for test
+        temp_connector = DBConnector(
+            type=request.type,
+            base_url=str(request.base_url),
+            api_token=encrypt_data(request.api_token),
+            settings={}
+        )
+        
+        try:
+            connector_instance = await get_connector_instance(temp_connector)
+            is_valid = await connector_instance.validate_connection()
+            if is_valid:
+                return ConnectorValidationResult(valid=True, message="Connection successful!")
+            else:
+                return ConnectorValidationResult(valid=False, message="Connection failed. Check credentials or URL.")
+        except Exception as e:
+            return ConnectorValidationResult(valid=False, message=f"Validation error: {str(e)}")
+
+
 @router.post("/validate", response_model=ConnectorValidationResult)
 async def validate_connector_config(
     connector_id: int,
     current_user: Annotated[User, Depends(get_current_active_user)],
-    db: Session = Depends(get_db) # Current behavior uses incoming config. Now it will use stored config
+    db: Session = Depends(get_db)
 ):
     """
-    Validates a given connector configuration stored in the database.
+    Validates a given connector configuration stored in the database (legacy).
     """
     db_connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
     if db_connector is None:
