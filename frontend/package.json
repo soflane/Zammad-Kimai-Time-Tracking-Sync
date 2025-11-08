@@ -43,6 +43,7 @@
     "@vitejs/plugin-react": "^4.3.1",
     "shadcn-ui": "^0.8.0",
     "typescript": "~5.5.3",
-    "vite": "^5.4.1"
+    "vite": "^5.4.1",
+    "vite-plugin-svgr": "^4.5.0"
   }
 }

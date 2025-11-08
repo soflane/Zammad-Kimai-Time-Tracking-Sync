@@ -8,7 +8,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Loader2, Plus, Trash2, Database, AlertTriangle } from 'lucide-react'
+import { Loader2, Plus, Trash2, AlertTriangle } from 'lucide-react'
+import ZammadIcon from '@/assets/icons/zammad-logo-only.svg?react'
+import KimaiIcon from '@/assets/icons/kimai-logo-only.svg?react'
 
 interface ConnectorFormData {
   type: 'zammad' | 'kimai'
@@ -279,10 +281,14 @@ export default function Connectors() {
             <Card key={connector.id} className="hover:shadow-modern transition-shadow">
               <CardHeader>
                 <CardTitle className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <Database className="h-5 w-5 text-primary" />
-                    <span>{connector.name}</span>
-                  </div>
+                    <div className="flex items-center space-x-2">
+                      {connector.type === 'zammad' ? (
+                        <ZammadIcon className="h-5 w-5 text-primary" />
+                      ) : (
+                        <KimaiIcon className="h-5 w-5 text-primary" />
+                      )}
+                      <span>{connector.name}</span>
+                    </div>
                   <div className="flex items-center space-x-1">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${connector.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                       {connector.is_active ? "Active" : "Inactive"}

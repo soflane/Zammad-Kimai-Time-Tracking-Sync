@@ -21,6 +21,9 @@ import {
   UploadCloud,
   Waypoints
 } from "lucide-react";
+
+import ZammadIcon from '@/assets/icons/zammad-logo-only.svg?react'
+import KimaiIcon from '@/assets/icons/kimai-logo-only.svg?react'
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -867,7 +870,7 @@ export default function SyncDashboard() {
                   <Card key={c.id} className="shadow-sm">
                     <CardHeader>
                       <CardTitle className="flex items-center justify-between text-base">
-                        <span className="flex items-center gap-2"><Link2 className="h-4 w-4"/> {c.name}</span>
+                        <span className="flex items-center gap-2">{c.type === 'zammad' ? <ZammadIcon className="h-4 w-4" /> : <KimaiIcon className="h-4 w-4" />} {c.name}</span>
                         <Badge variant={c.is_active ? "default" : "destructive"}>{c.is_active ? "Enabled" : "Disabled"}</Badge>
                       </CardTitle>
                       <CardDescription>{c.base_url}</CardDescription>
