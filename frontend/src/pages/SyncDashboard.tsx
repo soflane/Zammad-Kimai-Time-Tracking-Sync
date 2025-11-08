@@ -114,6 +114,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
           return "Please enter a valid URL (e.g., https://example.com)";
         }
       case 'apiToken':
+        if (item && !apiToken.trim()) return ""; // Allow empty for updates (no change)
         return !apiToken.trim() ? "API Token is required" : "";
       default:
         return "";
@@ -122,7 +123,14 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
 
   const updateFieldError = (field: string) => {
     const error = validateField(field);
-    setErrors(prev => ({ ...prev, [field]: error }));
+    if (error) {
+      setErrors(prev => ({ ...prev, [field]: error }));
+    } else {
+      setErrors(prev => {
+        const { [field]: _, ...rest } = prev;
+        return rest;
+      });
+    }
   };
 
   const resetVerification = () => {
@@ -160,11 +168,15 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
     const newErrors: Record<string, string> = {};
 
     if (!item) {
-      newErrors.type = validateField('type');
+      const typeError = validateField('type');
+      if (typeError) newErrors.type = typeError;
     }
-    newErrors.name = validateField('name');
-    newErrors.baseUrl = validateField('baseUrl');
-    newErrors.apiToken = validateField('apiToken');
+    const nameError = validateField('name');
+    if (nameError) newErrors.name = nameError;
+    const baseUrlError = validateField('baseUrl');
+    if (baseUrlError) newErrors.baseUrl = baseUrlError;
+    const apiTokenError = validateField('apiToken');
+    if (apiTokenError) newErrors.apiToken = apiTokenError;
 
     return newErrors;
   };
@@ -201,7 +213,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
     const formErrors = validateForm();
     setErrors(formErrors);
     setSubmitAttempted(true);
-    if (Object.keys(formErrors).length > 0) {
+    if (Object.values(formErrors).some(e => e)) {
       toast({ 
         title: "Validation Error", 
         description: "Please fix the errors in the form before saving.", 
@@ -356,7 +368,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
           <Button 
             className="gap-2" 
             onClick={handleSave}
-            disabled={Object.keys(errors).length > 0 || createMutation.isPending || updateMutation.isPending}
+            disabled={Object.values(errors).some(e => e) || createMutation.isPending || updateMutation.isPending}
           >
             <BadgeCheck className="h-4 w-4" /> Save
           </Button>
@@ -467,6 +479,8 @@ export default function SyncDashboard() {
   const [query, setQuery] = useState("");
   const [activeTab, setActiveTab] = useState("all");
   const [selectedConflicts, setSelectedConflicts] = useState<Set<number>>(new Set());
+  const [testResults, setTestResults] = useState<Record<number, { valid: boolean; message: string; timestamp: string }>>({});
+  const [pendingTests, setPendingTests] = useState<Set<number>>(new Set());
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -592,6 +606,40 @@ export default function SyncDashboard() {
     onError: (error: any) => {
       const errorMsg = error.response?.data?.detail || error.message || 'Sync failed';
       toast({ title: "Error", description: errorMsg, variant: "destructive" });
+    }
+  });
+
+  // Test existing connector mutation
+  const testExistingMutation = useMutation({
+    mutationFn: (id: number) => connectorService.testConnection({ id }),
+    onMutate: (variables: number) => {
+      const id = variables;
+      setPendingTests(prev => new Set([...prev, id]));
+    },
+    onSuccess: (data: ValidationResponse, variables: number) => {
+      const id = variables;
+      setTestResults(prev => ({ ...prev, [id]: { valid: data.valid, message: data.message, timestamp: new Date().toISOString() } }));
+      setPendingTests(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      if (data.valid) {
+        toast({ title: "Success", description: data.message });
+      } else {
+        toast({ title: "Test Failed", description: data.message, variant: "destructive" });
+      }
+    },
+    onError: (error: any, variables: number) => {
+      const id = variables;
+      setPendingTests(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(id);
+        return newSet;
+      });
+      const errorMsg = error.response?.data?.message || error.message || 'Test failed';
+      toast({ title: "Test Error", description: errorMsg, variant: "destructive" });
     }
   });
 
@@ -750,10 +798,36 @@ export default function SyncDashboard() {
                       <CardDescription>{c.base_url}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex items-center justify-between">
-                      <div className="text-sm text-muted-foreground">Connected</div>
+                      {pendingTests.has(c.id) ? (
+                        <div className="text-sm text-muted-foreground flex items-center gap-1">
+                          <RefreshCw className="h-3 w-3 animate-spin" />
+                          Testing...
+                        </div>
+                      ) : testResults[c.id]?.valid ? (
+                        <Badge variant="default" className="text-xs flex items-center gap-1">
+                          <Check className="h-3 w-3" />
+                          Connected
+                        </Badge>
+                      ) : testResults[c.id] ? (
+                        <Badge variant="destructive" className="text-xs flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          Failed
+                        </Badge>
+                      ) : (
+                        <div className="text-sm text-muted-foreground">Untested</div>
+                      )}
                       <div className="flex items-center gap-2">
                         <ConnectorDialog item={c} />
-                        <Button variant="ghost" size="sm" className="gap-2"><RefreshCw className="h-4 w-4"/> Re-auth</Button>
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          className="gap-2" 
+                          onClick={() => testExistingMutation.mutate(c.id)}
+                          disabled={pendingTests.has(c.id)}
+                        >
+                          <RefreshCw className={`h-4 w-4 ${pendingTests.has(c.id) ? 'animate-spin' : ''}`} />
+                          {pendingTests.has(c.id) ? 'Testing...' : 'Test'}
+                        </Button>
                       </div>
                     </CardContent>
                   </Card>

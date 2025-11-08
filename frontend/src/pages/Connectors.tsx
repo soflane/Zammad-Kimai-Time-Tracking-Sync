@@ -25,6 +25,8 @@ export default function Connectors() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [validating, setValidating] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [connectionValid, setConnectionValid] = useState<boolean | null>(null)
   const [editing, setEditing] = useState<number | null>(null)
   const [formData, setFormData] = useState<ConnectorFormData>({
     type: 'zammad',
@@ -33,6 +35,8 @@ export default function Connectors() {
     api_token: '',
     is_active: true
   })
+  const [errors, setErrors] = useState<Record<string, string | null>>({})
+  const [isFormValid, setIsFormValid] = useState(false)
   const { isAuthenticated } = useAuth()
   const { toast } = useToast()
 
