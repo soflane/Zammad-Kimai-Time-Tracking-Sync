@@ -107,7 +107,7 @@ export const mappingService = {
   },
 
   update: async (id: number, mapping: ActivityMappingUpdate): Promise<ActivityMapping> => {
-    const response = await api.put(`/mappings/${id}`, mapping)
+    const response = await api.patch(`/mappings/${id}`, mapping)
     return response.data
   },
 
