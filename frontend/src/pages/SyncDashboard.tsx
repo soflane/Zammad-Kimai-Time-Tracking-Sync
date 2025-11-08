@@ -1350,7 +1350,7 @@ export default function SyncDashboard() {
           </section>
 
           <footer className="pb-10 pt-4 text-center text-xs text-muted-foreground">
-            Built with ♥ for Belgian IT freelancers — configurable, auditable, and fast.
+            Built with ♥ by an Belgian IT freelancer.
           </footer>
         </main>
       </div>
