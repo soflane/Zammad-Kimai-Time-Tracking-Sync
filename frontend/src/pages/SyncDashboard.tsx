@@ -17,6 +17,7 @@ import {
   Settings,
   Tags,
   TimerReset,
+  Trash,
   UploadCloud,
   Waypoints
 } from "lucide-react";
@@ -81,6 +82,66 @@ function SectionHeader({
       </div>
       <div className="flex items-center gap-2">{actions}</div>
     </div>
+  );
+}
+
+function DeleteConnectorDialog({ item, onSuccess }: { item: Connector; onSuccess?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: () => connectorService.delete(item.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      toast({ title: "Success", description: `Connector "${item.name}" deleted successfully` });
+      setOpen(false);
+      onSuccess?.();
+    },
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to delete connector';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
+    }
+  });
+
+  const handleDelete = () => {
+    deleteMutation.mutate();
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="destructive" size="sm" className="gap-2" disabled={deleteMutation.isPending}>
+          <Trash className="h-4 w-4" />
+          Delete
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Connector?</DialogTitle>
+          <DialogDescription>
+            This will permanently remove the "{item.name}" connector and stop any associated syncs. This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button 
+            variant="destructive" 
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -643,6 +704,20 @@ export default function SyncDashboard() {
     }
   });
 
+  // Delete connector mutation
+  const deleteConnectorMutation = useMutation({
+    mutationFn: (id: number) => connectorService.delete(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["connectors"] });
+      queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      toast({ title: "Success", description: "Connector deleted successfully" });
+    },
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to delete connector';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
+    }
+  });
+
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/40">
       {/* Top Bar */}
@@ -828,6 +903,7 @@ export default function SyncDashboard() {
                           <RefreshCw className={`h-4 w-4 ${pendingTests.has(c.id) ? 'animate-spin' : ''}`} />
                           {pendingTests.has(c.id) ? 'Testing...' : 'Test'}
                         </Button>
+                        <DeleteConnectorDialog item={c} />
                       </div>
                     </CardContent>
                   </Card>
