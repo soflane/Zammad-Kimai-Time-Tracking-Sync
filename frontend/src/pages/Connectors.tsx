@@ -350,6 +350,19 @@ export default function Connectors() {
               {editing === 0 ? 'Add New Connector' : 'Edit Connector'}
             </h2>
             <div className="space-y-4">
+              {editing !== 0 && (
+                <div className="mb-4 p-3 bg-muted/50 rounded-md">
+                  <label className="text-sm font-medium mb-2 block">Type</label>
+                  <div className="flex items-center space-x-2">
+                    {formData.type === 'zammad' ? (
+                      <ZammadIcon className="h-4 w-4 text-primary" />
+                    ) : (
+                      <KimaiIcon className="h-4 w-4 text-primary" />
+                    )}
+                    <span className="text-sm font-medium capitalize">{formData.type}</span>
+                  </div>
+                </div>
+              )}
               {editing === 0 && (
                 <div>
                   <label className="text-sm font-medium mb-2 block">Type</label>

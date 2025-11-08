@@ -346,6 +346,19 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
           <DialogTitle>Configure {item?.name ?? "Connector"}</DialogTitle>
           <DialogDescription>Enter credentials and endpoint details. Secrets are stored encrypted in the service DB.</DialogDescription>
         </DialogHeader>
+        {item && (
+          <div className="mb-4 p-3 bg-muted/50 rounded-md">
+            <Label className="text-sm font-medium mb-2 block">Type</Label>
+            <div className="flex items-center space-x-2">
+              {item.type === 'zammad' ? (
+                <ZammadIcon className="h-4 w-4 text-primary" />
+              ) : (
+                <KimaiIcon className="h-4 w-4 text-primary" />
+              )}
+              <span className="text-sm font-medium capitalize">{item.type}</span>
+            </div>
+          </div>
+        )}
         {submitAttempted && Object.keys(errors).length > 0 && (
           <Alert variant="destructive" className="mb-4">
             <AlertTriangle className="h-4 w-4" />
@@ -908,10 +921,15 @@ export default function SyncDashboard() {
                 {connectors.map((c) => (
                   <Card key={c.id} className="shadow-sm">
                     <CardHeader>
-                      <CardTitle className="flex items-center justify-between text-base">
-                        <span className="flex items-center gap-2">{c.type === 'zammad' ? <ZammadIcon className="h-4 w-4" /> : <KimaiIcon className="h-4 w-4" />} {c.name}</span>
+                    <CardTitle className="flex items-center justify-between text-base">
+                      <span className="flex items-center gap-2">{c.type === 'zammad' ? <ZammadIcon className="h-4 w-4" /> : <KimaiIcon className="h-4 w-4" />} {c.name}</span>
+                      <div className="flex items-center space-x-1">
+                        <span className="px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                          {c.type.charAt(0).toUpperCase() + c.type.slice(1)}
+                        </span>
                         <Badge variant={c.is_active ? "default" : "destructive"}>{c.is_active ? "Enabled" : "Disabled"}</Badge>
-                      </CardTitle>
+                      </div>
+                    </CardTitle>
                       <CardDescription>{c.base_url}</CardDescription>
                     </CardHeader>
                     <CardContent className="flex items-center justify-between">
