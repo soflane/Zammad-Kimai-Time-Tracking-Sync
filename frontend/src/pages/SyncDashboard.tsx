@@ -119,9 +119,8 @@ function DeleteConnectorDialog({ item, onSuccess }: { item: Connector; onSuccess
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="destructive" size="sm" className="gap-2" disabled={deleteMutation.isPending}>
+        <Button variant="destructive" size="sm" disabled={deleteMutation.isPending} title="Delete connector">
           <Trash className="h-4 w-4" />
-          Delete
         </Button>
       </DialogTrigger>
       <DialogContent>
