@@ -80,6 +80,11 @@
   - Updated api.service.ts to return SyncResponse type
   - Improved toast messages with dynamic content (success: entry count; failure: error details)
 
+- **Frontend Cleanup (November 2025)**:
+  - Removed legacy multi-page UI files: Dashboard.tsx, Connectors.tsx, Mappings.tsx, Conflicts.tsx, AuditLogs.tsx, Layout.tsx
+  - Cleaned up commented legacy imports and routes in App.tsx
+  - Verified no active references; SyncDashboard fully replaces multi-page structure
+
 ## Deployment Status
 - **Local Development**: Fully functional (backend: uvicorn, frontend: npm run dev)
 - **Docker**: Complete stack (db, backend, frontend, nginx) - `docker-compose up`

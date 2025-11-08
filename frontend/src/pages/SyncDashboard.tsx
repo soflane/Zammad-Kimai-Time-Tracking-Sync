@@ -40,7 +40,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { DialogClose } from "@/components/ui/dialog";
-import { Separator } from "@/components/ui/separator";
 import { useToast } from "@/hooks/use-toast";
 
 import { connectorService, mappingService, syncService, conflictService, auditService } from "@/services/api.service";
@@ -752,19 +751,6 @@ export default function SyncDashboard() {
     queryClient.invalidateQueries({ queryKey: ["connectors"] });
   };
 
-  // Delete connector mutation
-  const deleteConnectorMutation = useMutation({
-    mutationFn: (id: number) => connectorService.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["connectors"] });
-      queryClient.invalidateQueries({ queryKey: ["kpi"] });
-      toast({ title: "Success", description: "Connector deleted successfully" });
-    },
-    onError: (error: any) => {
-      const errorMsg = error.response?.data?.detail || error.message || 'Failed to delete connector';
-      toast({ title: "Error", description: errorMsg, variant: "destructive" });
-    }
-  });
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/40">
