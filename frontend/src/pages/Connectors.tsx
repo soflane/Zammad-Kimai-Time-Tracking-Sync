@@ -290,11 +290,11 @@ export default function Connectors() {
                       <span>{connector.name}</span>
                     </div>
                   <div className="flex items-center space-x-1">
+                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
+                      {connector.type.charAt(0).toUpperCase() + connector.type.slice(1)}
+                    </span>
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${connector.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                       {connector.is_active ? "Active" : "Inactive"}
-                    </span>
-                    <span className="px-2 py-1 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                      {connector.type.toUpperCase()}
                     </span>
                   </div>
                 </CardTitle>
