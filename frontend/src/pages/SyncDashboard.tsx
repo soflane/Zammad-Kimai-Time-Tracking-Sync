@@ -44,7 +44,7 @@ import { useToast } from "@/hooks/use-toast";
 
 import { connectorService, mappingService, syncService, conflictService, auditService } from "@/services/api.service";
 import type { ValidationResponse } from "@/types";
-import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse } from "@/types";
+import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse, Activity as ActivityType } from "@/types";
 
 // Utility UI components
 const Pill = ({ ok }: { ok: boolean }) => (
@@ -515,10 +515,51 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
 
 // Mapping Dialog
 function MappingDialog({ row, onSuccess }: { row?: ActivityMapping; onSuccess?: () => void }) {
-  const [source, setSource] = useState(row?.zammad_type_name ?? "");
-  const [target, setTarget] = useState(row?.kimai_activity_name ?? "");
+  const [open, setOpen] = useState(false);
+  const [zammadActivityId, setZammadActivityId] = useState<number | undefined>(row?.zammad_type_id);
+  const [kimaiActivityId, setKimaiActivityId] = useState<number | undefined>(row?.kimai_activity_id);
   const { toast } = useToast();
   const queryClient = useQueryClient();
+
+  // Fetch connectors
+  const { data: connectors = [] } = useQuery<Connector[]>({
+    queryKey: ["connectors"],
+    queryFn: connectorService.getAll
+  });
+
+  const zammadConnector = useMemo(() => 
+    connectors.find(c => c.type === 'zammad' && c.is_active),
+    [connectors]
+  );
+
+  const kimaiConnector = useMemo(() => 
+    connectors.find(c => c.type === 'kimai' && c.is_active),
+    [connectors]
+  );
+
+  // Fetch activities from connectors
+  const { data: zammadActivities = [], isLoading: loadingZammad } = useQuery<ActivityType[]>({
+    queryKey: ["zammadActivities", zammadConnector?.id],
+    queryFn: () => connectorService.getActivities(zammadConnector!.id),
+    enabled: !!zammadConnector?.id
+  });
+
+  const { data: kimaiActivities = [], isLoading: loadingKimai } = useQuery<ActivityType[]>({
+    queryKey: ["kimaiActivities", kimaiConnector?.id],
+    queryFn: () => connectorService.getActivities(kimaiConnector!.id),
+    enabled: !!kimaiConnector?.id
+  });
+
+  // Get selected activity names
+  const selectedZammadActivity = useMemo(() => 
+    zammadActivities.find(a => a.id === zammadActivityId),
+    [zammadActivities, zammadActivityId]
+  );
+
+  const selectedKimaiActivity = useMemo(() => 
+    kimaiActivities.find(a => a.id === kimaiActivityId),
+    [kimaiActivities, kimaiActivityId]
+  );
 
   const createMutation = useMutation({
     mutationFn: (data: any) => mappingService.create(data),
@@ -526,10 +567,12 @@ function MappingDialog({ row, onSuccess }: { row?: ActivityMapping; onSuccess?: 
       queryClient.invalidateQueries({ queryKey: ["mappings"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
       toast({ title: "Success", description: "Mapping created successfully" });
+      setOpen(false);
       onSuccess?.();
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to create mapping", variant: "destructive" });
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to create mapping';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
     }
   });
 
@@ -539,25 +582,37 @@ function MappingDialog({ row, onSuccess }: { row?: ActivityMapping; onSuccess?: 
       queryClient.invalidateQueries({ queryKey: ["mappings"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
       toast({ title: "Success", description: "Mapping updated successfully" });
+      setOpen(false);
       onSuccess?.();
     },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to update mapping", variant: "destructive" });
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to update mapping';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
     }
   });
 
   const handleSave = () => {
+    if (!zammadActivityId || !kimaiActivityId) {
+      toast({ 
+        title: "Validation Error", 
+        description: "Please select both Zammad and Kimai activities", 
+        variant: "destructive" 
+      });
+      return;
+    }
+
     const createData = {
-      zammad_type_id: row?.zammad_type_id ?? 1,
-      zammad_type_name: source,
-      kimai_activity_id: row?.kimai_activity_id ?? 1,
-      kimai_activity_name: target
+      zammad_type_id: zammadActivityId,
+      zammad_type_name: selectedZammadActivity?.name || '',
+      kimai_activity_id: kimaiActivityId,
+      kimai_activity_name: selectedKimaiActivity?.name || ''
     };
 
     const updateData = {
-      zammad_type_name: source,
-      kimai_activity_id: row?.kimai_activity_id,
-      kimai_activity_name: target
+      zammad_type_id: zammadActivityId,
+      zammad_type_name: selectedZammadActivity?.name || '',
+      kimai_activity_id: kimaiActivityId,
+      kimai_activity_name: selectedKimaiActivity?.name || ''
     };
 
     if (row) {
@@ -567,8 +622,19 @@ function MappingDialog({ row, onSuccess }: { row?: ActivityMapping; onSuccess?: 
     }
   };
 
+  const handleOpenChange = (newOpen: boolean) => {
+    if (newOpen) {
+      // Reset to row values or undefined when opening
+      setZammadActivityId(row?.zammad_type_id);
+      setKimaiActivityId(row?.kimai_activity_id);
+    }
+    setOpen(newOpen);
+  };
+
+  const canSave = zammadActivityId && kimaiActivityId && !createMutation.isPending && !updateMutation.isPending;
+
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="gap-2">
           <Waypoints className="h-4 w-4" /> {row ? "Edit" : "New mapping"}
@@ -577,22 +643,100 @@ function MappingDialog({ row, onSuccess }: { row?: ActivityMapping; onSuccess?: 
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{row ? "Edit mapping" : "Create mapping"}</DialogTitle>
-          <DialogDescription>Define how Zammad activities map to Kimai activities, and whether the time is billable.</DialogDescription>
+          <DialogDescription>Match activity types between Zammad and Kimai for accurate time tracking synchronization.</DialogDescription>
         </DialogHeader>
+
+        {!zammadConnector && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              No active Zammad connector found. Please configure a Zammad connector first.
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {!kimaiConnector && (
+          <Alert variant="destructive">
+            <AlertTriangle className="h-4 w-4" />
+            <AlertDescription>
+              No active Kimai connector found. Please configure a Kimai connector first.
+            </AlertDescription>
+          </Alert>
+        )}
+
         <div className="grid gap-4 py-2">
           <div className="grid grid-cols-4 items-center gap-2">
-            <Label className="text-right">Source</Label>
-            <Input className="col-span-3" value={source} onChange={(e) => setSource(e.target.value)} placeholder="Zammad: Support" />
+            <Label className="text-right">Zammad Activity</Label>
+            <div className="col-span-3">
+              <Select 
+                value={zammadActivityId?.toString()} 
+                onValueChange={(v) => setZammadActivityId(Number(v))}
+                disabled={!zammadConnector || loadingZammad}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingZammad ? "Loading activities..." : "Select Zammad activity"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {zammadActivities.map(activity => (
+                    <SelectItem key={activity.id} value={activity.id.toString()}>
+                      {activity.name}
+                    </SelectItem>
+                  ))}
+                  {zammadActivities.length === 0 && !loadingZammad && (
+                    <SelectItem value="none" disabled>No activities available</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {zammadActivities.length === 0 && !loadingZammad && zammadConnector && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  No activities found. Check your Zammad connector configuration.
+                </p>
+              )}
+            </div>
           </div>
+
           <div className="grid grid-cols-4 items-center gap-2">
-            <Label className="text-right">Target</Label>
-            <Input className="col-span-3" value={target} onChange={(e) => setTarget(e.target.value)} placeholder="Kimai: Billable Support" />
+            <Label className="text-right">Kimai Activity</Label>
+            <div className="col-span-3">
+              <Select 
+                value={kimaiActivityId?.toString()} 
+                onValueChange={(v) => setKimaiActivityId(Number(v))}
+                disabled={!kimaiConnector || loadingKimai}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={loadingKimai ? "Loading activities..." : "Select Kimai activity"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {kimaiActivities.map(activity => (
+                    <SelectItem key={activity.id} value={activity.id.toString()}>
+                      {activity.name}
+                    </SelectItem>
+                  ))}
+                  {kimaiActivities.length === 0 && !loadingKimai && (
+                    <SelectItem value="none" disabled>No activities available</SelectItem>
+                  )}
+                </SelectContent>
+              </Select>
+              {kimaiActivities.length === 0 && !loadingKimai && kimaiConnector && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  No activities found. Check your Kimai connector configuration.
+                </p>
+              )}
+            </div>
           </div>
         </div>
+
         <DialogFooter>
-          <Button variant="ghost">Cancel</Button>
-          <Button className="gap-2" onClick={handleSave}>
-            <Check className="h-4 w-4" /> Save mapping
+          <DialogClose asChild>
+            <Button variant="ghost">Cancel</Button>
+          </DialogClose>
+          <Button 
+            className="gap-2" 
+            onClick={handleSave}
+            disabled={!canSave}
+          >
+            <Check className="h-4 w-4" /> 
+            {createMutation.isPending || updateMutation.isPending ? 'Saving...' : 'Save mapping'}
           </Button>
         </DialogFooter>
       </DialogContent>
