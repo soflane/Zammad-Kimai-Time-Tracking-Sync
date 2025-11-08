@@ -41,7 +41,7 @@
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
-    "shadcn-ui": "^0.8.0",
+    "shadcn-ui": "^0.9.5",
     "typescript": "~5.5.3",
     "vite": "^5.4.1",
     "vite-plugin-svgr": "^4.5.0"
