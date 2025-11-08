@@ -544,6 +544,7 @@ export default function SyncDashboard() {
   const [selectedConflicts, setSelectedConflicts] = useState<Set<number>>(new Set());
   const [testResults, setTestResults] = useState<Record<number, { valid: boolean; message: string; timestamp: string }>>({});
   const [pendingTests, setPendingTests] = useState<Set<number>>(new Set());
+  const [testAllPending, setTestAllPending] = useState(false);
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -706,6 +707,38 @@ export default function SyncDashboard() {
     }
   });
 
+  const handleTestAll = async () => {
+    const activeConnectors = connectors.filter(c => c.is_active);
+    if (activeConnectors.length === 0) {
+      toast({ title: "No Active Connectors", description: "Enable connectors to test them.", variant: "default" });
+      return;
+    }
+
+    setTestResults({});
+    setTestAllPending(true);
+    let passed = 0;
+    let total = activeConnectors.length;
+
+    for (const connector of activeConnectors) {
+      try {
+        await testExistingMutation.mutateAsync(connector.id);
+        if (testResults[connector.id]?.valid) passed++;
+      } catch (error) {
+        // Error already handled by mutation
+      }
+    }
+
+    setTestAllPending(false);
+    const summary = `${passed} of ${total} tests passed`;
+    toast({ 
+      title: "Test All Complete", 
+      description: summary,
+      variant: passed === total ? "default" : "destructive" 
+    });
+
+    queryClient.invalidateQueries({ queryKey: ["connectors"] });
+  };
+
   // Delete connector mutation
   const deleteConnectorMutation = useMutation({
     mutationFn: (id: number) => connectorService.delete(id),
@@ -850,8 +883,15 @@ export default function SyncDashboard() {
               actions={
                 <div className="flex items-center gap-2">
                   <ConnectorDialog />
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <RefreshCw className="h-4 w-4" /> Test All
+                  <Button 
+                    variant="outline" 
+                    size="sm" 
+                    className="gap-2" 
+                    onClick={handleTestAll}
+                    disabled={connectors.filter(c => c.is_active).length === 0 || testAllPending}
+                  >
+                    <RefreshCw className={`h-4 w-4 ${testAllPending ? 'animate-spin' : ''}`} />
+                    {testAllPending ? 'Testing All...' : 'Test All'}
                   </Button>
                 </div>
               }
