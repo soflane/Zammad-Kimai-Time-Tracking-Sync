@@ -146,6 +146,66 @@ function DeleteConnectorDialog({ item, onSuccess }: { item: Connector; onSuccess
   );
 }
 
+// Delete Mapping Dialog
+function DeleteMappingDialog({ item, onSuccess }: { item: ActivityMapping; onSuccess?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  const deleteMutation = useMutation({
+    mutationFn: () => mappingService.delete(item.id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["mappings"] });
+      queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      toast({ title: "Success", description: `Mapping "${item.zammad_type_name} → ${item.kimai_activity_name}" deleted successfully` });
+      setOpen(false);
+      onSuccess?.();
+    },
+    onError: (error: any) => {
+      const errorMsg = error.response?.data?.detail || error.message || 'Failed to delete mapping';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
+    }
+  });
+
+  const handleDelete = () => {
+    deleteMutation.mutate();
+  };
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogTrigger asChild>
+        <Button variant="destructive" size="sm" disabled={deleteMutation.isPending} title="Delete mapping">
+          <Trash className="h-4 w-4" />
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Delete Mapping?</DialogTitle>
+          <DialogDescription>
+            This will permanently remove the mapping between "{item.zammad_type_name}" and "{item.kimai_activity_name}". This action cannot be undone.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose asChild>
+            <Button variant="outline">Cancel</Button>
+          </DialogClose>
+          <Button 
+            variant="destructive" 
+            onClick={handleDelete}
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // Connector Dialog
 function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: () => void }) {
   const [open, setOpen] = useState(false);
@@ -997,7 +1057,7 @@ export default function SyncDashboard() {
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
                             <MappingDialog row={row} />
-                            <Button size="sm" variant="ghost">Delete</Button>
+                            <DeleteMappingDialog item={row} />
                           </div>
                         </TableCell>
                       </TableRow>
