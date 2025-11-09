@@ -46,6 +46,11 @@ class SyncService:
         self.reconciliation_service = reconciliation_service
         self.db = db
         self.kimai_config = self.kimai_connector.config.get('settings', {}) if hasattr(self.kimai_connector, 'config') and 'settings' in self.kimai_connector.config else {}
+        
+        # Inject Kimai connector into reconciliation service for rounding-aware matching
+        if self.reconciliation_service and not self.reconciliation_service.kimai_connector:
+            self.reconciliation_service.kimai_connector = self.kimai_connector
+            log.debug("Injected Kimai connector into ReconciliationService for rounding-aware matching")
 
     def _determine_customer_name(self, entry: TimeEntryNormalized) -> str:
         if entry.org_name:
@@ -308,59 +313,61 @@ Zammad URL: {zammad_url}
                             stats["ignored_unmapped"] += 1
                             continue  # Skip creation without conflict
                         
-                        # Create unmapped conflict
-                        context = {
-                            'activity_name': z_entry.activity_name or 'Unknown',
-                            'zammad_type_id': z_entry.activity_type_id,
-                        }
-                        detail = explain_reason(ReasonCode.UNMAPPED_ACTIVITY, context)
-                        z_minutes = z_entry.duration_sec / 60.0
-                        customer_name = self._determine_customer_name(z_entry)
-                        project_name = f"Ticket {z_entry.ticket_number or z_entry.ticket_id}"
-                        
-                        # Deduplication check
-                        existing = self.db.query(DBConflict).filter(
-                            or_(
-                                DBConflict.ticket_number == z_entry.ticket_number,
-                                DBConflict.activity_name == z_entry.activity_name
-                            ),
-                            DBConflict.zammad_created_at == z_entry.created_at,
-                            DBConflict.zammad_time_minutes == z_minutes,
-                            DBConflict.resolution_status == 'pending'
-                        ).first()
-                        
-                        if existing:
-                            log.info(f"Duplicate unmapped conflict skipped for ticket {z_entry.ticket_number}, activity {z_entry.activity_name}")
-                            te.sync_status = 'conflict'
-                            te.sync_error = detail
-                            te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
-                            self.db.commit()
-                            stats["skipped_duplicates"] += 1
-                            continue
-                        
-                        conflict = DBConflict(
-                            conflict_type='unmapped_activity',
-                            reason_code=ReasonCode.UNMAPPED_ACTIVITY.value,
-                            reason_detail=detail,
-                            customer_name=customer_name,
-                            project_name=project_name,
-                            activity_name=z_entry.activity_name,
-                            ticket_number=z_entry.ticket_number,
-                            zammad_created_at=z_entry.created_at,
-                            zammad_entry_date=z_entry.entry_date,
-                            zammad_time_minutes=z_minutes,
-                            time_entry_id=te_id,
-                            resolution_status='pending'
-                        )
-                        self.db.add(conflict)
-                        self.db.commit()
+                    # Create unmapped conflict
+                    context = {
+                        'activity_name': z_entry.activity_name or 'Unknown',
+                        'zammad_type_id': z_entry.activity_type_id,
+                    }
+                    detail = explain_reason(ReasonCode.UNMAPPED_ACTIVITY, context)
+                    z_minutes = z_entry.duration_sec / 60.0
+                    customer_name = self._determine_customer_name(z_entry)
+                    project_name = f"Ticket {z_entry.ticket_number or z_entry.ticket_id}"
+                    
+                    # Deduplication check
+                    existing = self.db.query(DBConflict).filter(
+                        or_(
+                            DBConflict.ticket_number == z_entry.ticket_number,
+                            DBConflict.activity_name == z_entry.activity_name
+                        ),
+                        DBConflict.zammad_created_at == z_entry.created_at,
+                        DBConflict.zammad_time_minutes == z_minutes,
+                        DBConflict.resolution_status == 'pending'
+                    ).first()
+                    
+                    if existing:
+                        log.info(f"Duplicate unmapped conflict skipped for ticket {z_entry.ticket_number}, activity {z_entry.activity_name}")
                         te.sync_status = 'conflict'
                         te.sync_error = detail
                         te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
                         self.db.commit()
-                        stats["unmapped"] += 1
-                        stats["conflicts"] += 1
-                        continue  # Skip creation
+                        stats["skipped_duplicates"] += 1
+                        continue
+                    
+                    conflict = DBConflict(
+                        conflict_type='conflict',
+                        reason_code=ReasonCode.UNMAPPED_ACTIVITY.value,
+                        reason_detail=detail,
+                        customer_name=customer_name,
+                        project_name=project_name,
+                        activity_name=z_entry.activity_name,
+                        ticket_number=z_entry.ticket_number,
+                        zammad_created_at=z_entry.created_at,
+                        zammad_entry_date=z_entry.entry_date,
+                        zammad_time_minutes=z_minutes,
+                        zammad_data=z_entry.model_dump(),  # Store complete Zammad entry data
+                        time_entry_id=te_id,
+                        resolution_status='pending'
+                    )
+                    self.db.add(conflict)
+                    log.info(f"Created conflict (unmapped_activity) for ticket {z_entry.ticket_number}")
+                    self.db.commit()
+                    te.sync_status = 'conflict'
+                    te.sync_error = detail
+                    te.updated_at = datetime.now(ZoneInfo('Europe/Brussels'))
+                    self.db.commit()
+                    stats["unmapped"] += 1
+                    stats["conflicts"] += 1
+                    continue  # Skip creation
 
                     activity_id = mapping.kimai_activity_id
                     timesheet = await self._create_timesheet(z_entry, project['id'], activity_id)
@@ -398,7 +405,7 @@ Zammad URL: {zammad_url}
                             stats["skipped_duplicates"] += 1
                         else:
                             conflict = DBConflict(
-                                conflict_type='create_failed',
+                                conflict_type='missing',
                                 reason_code=ReasonCode.CREATION_ERROR.value,
                                 reason_detail=detail,
                                 customer_name=customer_name,
@@ -408,10 +415,12 @@ Zammad URL: {zammad_url}
                                 zammad_created_at=z_entry.created_at,
                                 zammad_entry_date=z_entry.entry_date,
                                 zammad_time_minutes=z_minutes,
+                                zammad_data=z_entry.model_dump(),  # Store complete Zammad entry data
                                 time_entry_id=te_id,
                                 resolution_status='pending'
                             )
                             self.db.add(conflict)
+                            log.info(f"Created missing conflict (creation error) for ticket {z_entry.ticket_number}")
                             self.db.commit()
                             te.sync_status = 'error'
                             te.sync_error = detail
@@ -460,7 +469,7 @@ Zammad URL: {zammad_url}
                         stats["skipped_duplicates"] += 1
                     else:
                         conflict = DBConflict(
-                            conflict_type='duplicate',
+                            conflict_type='conflict',
                             reason_code=reason_code.value,
                             reason_detail=detail,
                             customer_name=customer_name,
@@ -470,14 +479,17 @@ Zammad URL: {zammad_url}
                             zammad_created_at=z_entry.created_at,
                             zammad_entry_date=z_entry.entry_date,
                             zammad_time_minutes=z_minutes,
+                            zammad_data=z_entry.model_dump(),  # Store complete Zammad entry data
                             kimai_begin=getattr(k_entry, 'begin', None),
                             kimai_end=getattr(k_entry, 'end', None),
                             kimai_duration_minutes=k_minutes,
+                            kimai_data=k_entry.model_dump() if k_entry else None,  # Store complete Kimai entry data
                             kimai_id=k_id,
                             time_entry_id=te_id,
                             resolution_status='pending'
                         )
                         self.db.add(conflict)
+                        log.info(f"Created conflict ({reason_code.name}) for ticket {z_entry.ticket_number}")
                         self.db.commit()
                         te.sync_status = 'conflict'
                         te.sync_error = detail

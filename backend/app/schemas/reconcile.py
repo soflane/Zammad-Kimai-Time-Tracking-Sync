@@ -8,6 +8,8 @@ class WorklogData(BaseModel):
     activity: str
     user: str
     startedAt: str
+    ticketNumber: Optional[str] = None
+    description: Optional[str] = None
 
 
 class AutoPath(BaseModel):
@@ -30,6 +32,8 @@ class DiffItem(BaseModel):
     source: Optional[WorklogData] = None  # Zammad worklog
     target: Optional[WorklogData] = None  # Kimai timesheet
     autoPath: Optional[AutoPath] = None  # Auto-creation indicators
+    conflictReason: Optional[str] = None  # Why this is a conflict (for conflicts only)
+    reasonCode: Optional[str] = None  # Machine-readable reason code
 
 
 class ReconcileResponse(BaseModel):

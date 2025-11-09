@@ -218,6 +218,15 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
   const [submitAttempted, setSubmitAttempted] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [testError, setTestError] = useState<string | null>(null);
+  
+  // Kimai-specific settings
+  const itemSettings = item?.type === 'kimai' && item?.settings ? item.settings as any : {};
+  const [roundingMode, setRoundingMode] = useState<string>(itemSettings.rounding_mode || 'default');
+  const [roundBegin, setRoundBegin] = useState<number>(itemSettings.round_begin || 0);
+  const [roundEnd, setRoundEnd] = useState<number>(itemSettings.round_end || 0);
+  const [roundDuration, setRoundDuration] = useState<number>(itemSettings.round_duration || 0);
+  const [roundingDays, setRoundingDays] = useState<number[]>(itemSettings.rounding_days || [0, 1, 2, 3, 4, 5, 6]);
+  
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -344,13 +353,22 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
       return;
     }
 
+    // Build settings for Kimai connectors
+    const kimaiSettings = (type === 'kimai' || item?.type === 'kimai') ? {
+      rounding_mode: roundingMode,
+      round_begin: roundBegin,
+      round_end: roundEnd,
+      round_duration: roundDuration,
+      rounding_days: roundingDays
+    } : {};
+
     const createData = {
       type,
       name,
       base_url: baseUrl,
       api_token: apiToken,
       is_active: enabled,
-      settings: {}
+      settings: kimaiSettings
     };
 
     const updateData = {
@@ -358,7 +376,7 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
       base_url: baseUrl,
       api_token: apiToken || undefined,
       is_active: enabled,
-      settings: {}
+      settings: kimaiSettings
     };
 
     if (item) {
@@ -485,6 +503,57 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
               {isVerified && <p className="col-span-4 text-sm text-green-600 mt-1 flex items-center"><Check className="h-3 w-3 mr-1" /> Verified connection</p>}
               {testError && <p className="col-span-4 text-sm text-destructive mt-1">{testError}</p>}
             </div>
+          )}
+          
+          {/* Kimai-specific rounding settings */}
+          {(type === 'kimai' || item?.type === 'kimai') && (
+            <>
+              <div className="col-span-4 border-t pt-4 mt-2">
+                <Label className="text-sm font-medium mb-2 block">Time Rounding (optional)</Label>
+                <p className="text-xs text-muted-foreground mb-3">Configure rounding to match your Kimai user settings for accurate reconciliation</p>
+              </div>
+              
+              <div className="grid grid-cols-4 items-center gap-2">
+                <Label className="text-right text-sm">Rounding Mode</Label>
+                <Select value={roundingMode} onValueChange={setRoundingMode}>
+                  <SelectTrigger className="col-span-3">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="default">Default (begin↓ end/duration↑)</SelectItem>
+                    <SelectItem value="closest">Closest (nearest value)</SelectItem>
+                    <SelectItem value="floor">Floor (always down)</SelectItem>
+                    <SelectItem value="ceil">Ceil (always up)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="grid grid-cols-4 items-center gap-2">
+                <Label className="text-right text-sm">Round Begin (min)</Label>
+                <Input 
+                  type="number" 
+                  min="0" 
+                  step="1"
+                  className="col-span-3" 
+                  value={roundBegin} 
+                  onChange={(e) => setRoundBegin(Number(e.target.value))}
+                  placeholder="0 = disabled"
+                />
+              </div>
+              
+              <div className="grid grid-cols-4 items-center gap-2">
+                <Label className="text-right text-sm">Round Duration (min)</Label>
+                <Input 
+                  type="number" 
+                  min="0" 
+                  step="1"
+                  className="col-span-3" 
+                  value={roundDuration} 
+                  onChange={(e) => setRoundDuration(Number(e.target.value))}
+                  placeholder="0 = disabled"
+                />
+              </div>
+            </>
           )}
         </div>
         <DialogFooter>
@@ -853,13 +922,21 @@ function ReconcileSection() {
                     <div key={item.id} className="border rounded-lg p-4 space-y-3">
                       {/* Header */}
                       <div className="flex items-start justify-between">
-                        <div>
+                        <div className="flex-1">
                           <div className="font-medium text-base">
                             {item.ticketId} · {item.ticketTitle}
                           </div>
                           <div className="text-sm text-muted-foreground">
                             Customer: {item.customer}
                           </div>
+                          {item.conflictReason && (
+                            <div className="mt-1 flex items-center gap-2">
+                              <Badge variant="destructive" className="text-xs">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                {item.conflictReason}
+                              </Badge>
+                            </div>
+                          )}
                         </div>
                         <div className="flex gap-2">
                           <Badge variant={item.status === 'conflict' ? 'destructive' : 'secondary'}>
@@ -874,11 +951,28 @@ function ReconcileSection() {
                         {item.source && (
                           <div className="space-y-1">
                             <div className="text-sm font-medium text-muted-foreground">Source (Zammad)</div>
-                            <div className="bg-muted/50 rounded p-2 text-sm space-y-1">
-                              <div><strong>Time:</strong> {item.source.minutes} min</div>
-                              <div><strong>Activity:</strong> {item.source.activity}</div>
-                              <div><strong>User:</strong> {item.source.user}</div>
-                              <div className="text-xs text-muted-foreground">{new Date(item.source.startedAt).toLocaleString()}</div>
+                            <div className="bg-muted/50 rounded p-3 text-sm space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">Time:</span>
+                                <span className="font-medium">{item.source.minutes} min</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">Activity:</span>
+                                <span className="font-medium">{item.source.activity}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">User:</span>
+                                <span className="font-medium">{item.source.user}</span>
+                              </div>
+                              <div className="pt-1 border-t text-xs text-muted-foreground">
+                                {new Date(item.source.startedAt).toLocaleString()}
+                              </div>
+                              {item.source.description && (
+                                <div className="pt-1 border-t text-xs">
+                                  <span className="text-muted-foreground">Note: </span>
+                                  <span className="line-clamp-2">{item.source.description}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -886,11 +980,28 @@ function ReconcileSection() {
                         {item.target && (
                           <div className="space-y-1">
                             <div className="text-sm font-medium text-muted-foreground">Target (Kimai)</div>
-                            <div className="bg-muted/50 rounded p-2 text-sm space-y-1">
-                              <div><strong>Time:</strong> {item.target.minutes} min</div>
-                              <div><strong>Activity:</strong> {item.target.activity}</div>
-                              <div><strong>User:</strong> {item.target.user}</div>
-                              <div className="text-xs text-muted-foreground">{new Date(item.target.startedAt).toLocaleString()}</div>
+                            <div className="bg-muted/50 rounded p-3 text-sm space-y-1.5">
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">Time:</span>
+                                <span className="font-medium">{item.target.minutes} min</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">Activity:</span>
+                                <span className="font-medium">{item.target.activity}</span>
+                              </div>
+                              <div className="flex items-center justify-between">
+                                <span className="text-muted-foreground">User:</span>
+                                <span className="font-medium">{item.target.user}</span>
+                              </div>
+                              <div className="pt-1 border-t text-xs text-muted-foreground">
+                                {new Date(item.target.startedAt).toLocaleString()}
+                              </div>
+                              {item.target.description && (
+                                <div className="pt-1 border-t text-xs">
+                                  <span className="text-muted-foreground">Note: </span>
+                                  <span className="line-clamp-2">{item.target.description}</span>
+                                </div>
+                              )}
                             </div>
                           </div>
                         )}
@@ -1035,7 +1146,7 @@ export default function SyncDashboard() {
       case "all":
         return conflicts;
       case "conflicts":
-        return conflicts.filter(c => c.resolution_status === 'open');
+        return conflicts.filter(c => c.resolution_status === 'pending');
       case "missing":
         return conflicts.filter(c => c.conflict_type?.includes('missing'));
       case "matches":

@@ -1,8 +1,12 @@
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, TYPE_CHECKING
 from enum import Enum
+from datetime import datetime, date
 
 from app.connectors.base import TimeEntryNormalized
 import logging
+
+if TYPE_CHECKING:
+    from app.connectors.kimai_connector import KimaiConnector
 
 log = logging.getLogger(__name__)
 
@@ -25,22 +29,58 @@ class ReconciliationService:
     """
     Service responsible for reconciling time entries between Zammad and Kimai.
     Identifies matches, conflicts, and missing entries based on defined rules.
+    
+    Supports rounding-aware matching when KimaiConnector is provided.
     """
 
-    def __init__(self):
-        pass # No external dependencies for core logic yet
+    def __init__(self, kimai_connector: Optional['KimaiConnector'] = None):
+        """
+        Initialize reconciliation service.
+        
+        Args:
+            kimai_connector: Optional KimaiConnector for rounding-aware matching
+        """
+        self.kimai_connector = kimai_connector
 
     def _is_exact_match(self, zammad_entry: TimeEntryNormalized, kimai_entry: TimeEntryNormalized) -> bool:
         """
         Checks for an exact match between two normalized time entries.
         Criteria: same source_id (if available from previous sync), or same ticket, date, and time.
+        
+        When KimaiConnector is available, applies Kimai's rounding rules to Zammad entry
+        before comparison for more accurate matching.
         """
         log.debug(f"Matching check: Zammad {zammad_entry.source_id} (ticket: {zammad_entry.ticket_number}, begin: {zammad_entry.begin_time}, dur: {zammad_entry.duration_sec}) vs Kimai {kimai_entry.source_id} (ticket: {kimai_entry.ticket_number}, begin: {kimai_entry.begin_time}, dur: {kimai_entry.duration_sec})")
         
-        # Exact source_id (from zid tag)
+        # Exact source_id (from zid tag or marker)
         if zammad_entry.source_id and kimai_entry.source_id and zammad_entry.source_id == kimai_entry.source_id:
             log.debug(" -> Exact match on source_id")
             return True
+        
+        # Rounding-aware matching (if Kimai connector available)
+        if self.kimai_connector and zammad_entry.begin_time and zammad_entry.entry_date:
+            try:
+                z_begin_dt = datetime.fromisoformat(zammad_entry.begin_time)
+                z_date = date.fromisoformat(zammad_entry.entry_date)
+                
+                # Apply Kimai rounding to Zammad times
+                rounded_begin, rounded_duration = self.kimai_connector.apply_rounding_rules(
+                    z_begin_dt,
+                    zammad_entry.duration_sec,
+                    z_date
+                )
+                
+                rounded_begin_str = rounded_begin.strftime('%Y-%m-%dT%H:%M:%S')
+                
+                # Compare rounded Zammad vs actual Kimai
+                if (zammad_entry.ticket_number == kimai_entry.ticket_number and
+                    rounded_begin_str == kimai_entry.begin_time and
+                    abs(rounded_duration - kimai_entry.duration_sec) <= 60):
+                    log.debug(f" -> Match after applying Kimai rounding rules (rounded begin: {rounded_begin_str}, rounded dur: {rounded_duration}s)")
+                    return True
+            except Exception as e:
+                log.warning(f"Failed to apply rounding rules for matching: {e}")
+                # Continue with non-rounded matching below
         
         # Exact on ticket_number + begin_time + duration (±60s)
         if (zammad_entry.ticket_number == kimai_entry.ticket_number and

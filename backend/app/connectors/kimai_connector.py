@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime, timedelta, date
 
 from app.connectors.base import BaseConnector, TimeEntryNormalized
@@ -740,3 +740,124 @@ class KimaiConnector(BaseConnector):
         except httpx.HTTPStatusError as e:
             log.error(f"Error creating timesheet: {e.response.status_code} - {e.response.text}")
             raise ValueError(f"Failed to create Kimai timesheet: {e.response.text}")
+
+    def apply_rounding_rules(
+        self, 
+        begin_dt: datetime, 
+        duration_sec: int,
+        entry_date: date
+    ) -> Tuple[datetime, int]:
+        """
+        Applies Kimai's rounding rules to begin time and duration.
+        
+        Args:
+            begin_dt: Begin datetime (naive, local timezone)
+            duration_sec: Duration in seconds
+            entry_date: Date of the entry (for weekday check)
+            
+        Returns:
+            Tuple of (rounded_begin_dt, rounded_duration_sec)
+        """
+        config = self.config.get('settings', {})
+        
+        # Check if rounding applies on this day of week
+        day_of_week = entry_date.weekday()  # 0=Monday, 6=Sunday
+        rounding_days = config.get('rounding_days', [0, 1, 2, 3, 4, 5, 6])
+        if day_of_week not in rounding_days:
+            log.debug(f"Rounding skipped for day {day_of_week} (not in rounding_days)")
+            return begin_dt, duration_sec
+        
+        mode = config.get('rounding_mode', 'default')
+        round_begin_min = config.get('round_begin', 0)
+        round_duration_min = config.get('round_duration', 0)
+        
+        # Round begin time
+        rounded_begin = begin_dt
+        if round_begin_min > 0:
+            rounded_begin = self._round_datetime(begin_dt, round_begin_min, mode, 'begin')
+            if rounded_begin != begin_dt:
+                log.debug(f"Rounded begin: {begin_dt.strftime('%H:%M:%S')} → {rounded_begin.strftime('%H:%M:%S')} (mode={mode}, interval={round_begin_min}min)")
+        
+        # Round duration
+        rounded_duration = duration_sec
+        if round_duration_min > 0:
+            rounded_duration = self._round_duration(duration_sec, round_duration_min, mode)
+            if rounded_duration != duration_sec:
+                log.debug(f"Rounded duration: {duration_sec}s → {rounded_duration}s (mode={mode}, interval={round_duration_min}min)")
+        
+        return rounded_begin, rounded_duration
+    
+    def _round_datetime(
+        self, 
+        dt: datetime, 
+        round_min: int, 
+        mode: str,
+        time_type: str  # 'begin' or 'end'
+    ) -> datetime:
+        """
+        Round datetime to nearest interval based on rounding mode.
+        
+        Args:
+            dt: Datetime to round
+            round_min: Rounding interval in minutes
+            mode: Rounding mode ('default', 'closest', 'floor', 'ceil')
+            time_type: Whether this is 'begin' or 'end' time (affects 'default' mode)
+            
+        Returns:
+            Rounded datetime
+        """
+        total_minutes = dt.hour * 60 + dt.minute
+        
+        if mode == 'default':
+            # Begin rounds down (floor), end rounds up (ceil)
+            if time_type == 'begin':
+                rounded_min = (total_minutes // round_min) * round_min
+            else:
+                rounded_min = ((total_minutes + round_min - 1) // round_min) * round_min
+        elif mode == 'closest':
+            # Round to nearest interval
+            rounded_min = round(total_minutes / round_min) * round_min
+        elif mode == 'floor':
+            # Always round down
+            rounded_min = (total_minutes // round_min) * round_min
+        elif mode == 'ceil':
+            # Always round up
+            rounded_min = ((total_minutes + round_min - 1) // round_min) * round_min
+        else:
+            # Unknown mode, no rounding
+            return dt
+        
+        # Ensure we don't exceed 24 hours
+        rounded_min = min(rounded_min, 24 * 60 - 1)
+        
+        return dt.replace(hour=rounded_min // 60, minute=rounded_min % 60, second=0, microsecond=0)
+    
+    def _round_duration(self, duration_sec: int, round_min: int, mode: str) -> int:
+        """
+        Round duration to nearest interval based on rounding mode.
+        
+        Args:
+            duration_sec: Duration in seconds
+            round_min: Rounding interval in minutes
+            mode: Rounding mode ('default', 'closest', 'floor', 'ceil')
+            
+        Returns:
+            Rounded duration in seconds
+        """
+        round_sec = round_min * 60
+        
+        if mode == 'default' or mode == 'ceil':
+            # Duration always rounds up by default (Kimai behavior)
+            rounded_sec = ((duration_sec + round_sec - 1) // round_sec) * round_sec
+        elif mode == 'closest':
+            # Round to nearest interval
+            rounded_sec = round(duration_sec / round_sec) * round_sec
+        elif mode == 'floor':
+            # Always round down
+            rounded_sec = (duration_sec // round_sec) * round_sec
+        else:
+            # Unknown mode, no rounding
+            rounded_sec = duration_sec
+        
+        # Ensure non-negative
+        return max(0, int(rounded_sec))

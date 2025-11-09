@@ -39,7 +39,65 @@
 Authentication system, base connector interface, Zammad connector, Kimai connector, connector API endpoints, normalizer service, reconciliation engine, sync service, conflict detection with API endpoints, scheduled tasks, and connection validation with connector configuration management are implemented. **Latest: Enhanced sync with marker-based idempotency, article timestamps, and improved duplicate prevention (January 2025).**
 
 ## Recent Actions (Most Recent First)
-1. **Sync Error Handling Refactor (November 2025)**:
+1. **Fixed Reconcile Screen Data Extraction (November 2025)**:
+   - **Problem**: Reconcile screen showed "Unknown" for activity types and users despite rich data in database
+   - **Root Cause**: Sync service created conflicts without populating `zammad_data` and `kimai_data` JSONB fields; extraction logic was correct but no data to extract
+   - **Backend Fixes** (`backend/app/services/sync_service.py`):
+     - Added `zammad_data=z_entry.model_dump()` to all conflict creation points (unmapped activity, creation errors, time mismatches/duplicates)
+     - Added `kimai_data=k_entry.model_dump()` for conflict cases with existing Kimai entries
+     - Now stores complete normalized entry data (user names, activity types, descriptions, timestamps) in JSONB fields
+   - **Impact**: 
+     - Reconcile endpoint now extracts real user names from `zammad_data.user_name`/`user_email`
+     - Activity types from `activity_name` or `zammad_data.activity_type_name`
+     - Descriptions and full metadata available for display
+     - Existing conflicts unaffected (still show "Unknown"); new conflicts after sync will show complete data
+   - **Frontend**: No changes needed - extraction logic in `_conflict_to_diffitem()` already handled JSONB data correctly
+   - **Testing**: Run new sync to create conflicts; verify Reconcile screen shows actual user names, activity types, and descriptions
+   - **Compliance**: Backward compatible; no schema changes; existing conflicts remain functional
+
+2. **Reconcile Screen Refactor with New Business Rules (January 2025)**:
+   - **Goal**: Adapt Reconcile screen to new business model where matched rows auto-sync, and manual reconciliation is only for conflicts and missing entries.
+   - **Business Rules Implemented**:
+     - Matched rows are auto-synced during runs (no user confirmation needed)
+     - Reconcile screen only shows **Conflicts** and **Missing** (removed "All" and "Matches" tabs)
+     - Visual domain mapping: Ticket → Project (ticket number), Customer auto-creation (aggregate Zammad org), Worklog → Timesheet (with mapped activity + `Zammad` tag)
+   - **Backend Changes**:
+     - Created new reconcile schemas (`backend/app/schemas/reconcile.py`):
+       - `DiffItem`: Represents conflict/missing entries with ticket, customer, source/target worklog data, and autoPath indicators
+       - `ReconcileResponse`: Paginated response with items, total, and counts (conflicts/missing)
+       - `RowActionRequest`: Request body for row actions (keep-target, update, create, skip)
+     - Created reconcile endpoint (`backend/app/api/v1/endpoints/reconcile.py`):
+       - `GET /api/v1/reconcile?filter=conflicts|missing&page=1&pageSize=50`: Returns filtered diff items with autoPath computation
+       - `POST /api/v1/reconcile/row/{row_id}`: Performs actions on rows (keep-target, update, create, skip)
+       - **AutoPath Logic**: Checks if customer/project exist in Kimai and sets creation flags (createCustomer, createProject, createTimesheet)
+     - Registered reconcile router in `backend/app/api/v1/api.py`
+   - **Frontend Changes**:
+     - Updated types (`frontend/src/types/index.ts`): Added `DiffStatus`, `RowOp`, `WorklogData`, `AutoPath`, `DiffItem`, `ReconcileResponse`
+     - Updated API service (`frontend/src/services/api.service.ts`): Added `reconcileService` with `getDiff()` and `performAction()` methods
+     - Refactored Reconcile section (`frontend/src/pages/SyncDashboard.tsx`):
+       - **Info Banner**: Explains sync mapping rules (Ticket → Project, Customer auto-creation, Worklog → Timesheet)
+       - **Tabs**: Only "Conflicts" and "Missing" (removed "All" and "Matches")
+       - **ReconcileSection Component**: 
+         - Fetches data from new reconcile endpoint
+         - Displays diff rows with proper layout (ticket info, customer, source/target comparison)
+         - Shows autoPath chip when entities need auto-creation ("Will sync automatically" badge with details)
+         - Row actions based on status:
+           - **Conflict**: "Keep Target" + "Update from Zammad" (with confirmation dialog)
+           - **Missing**: "Skip" + "Create in Kimai"
+         - Implements optimistic updates with error rollback
+         - Confirmation dialog for "Update from Zammad" action to prevent accidental overwrites
+   - **Query Invalidation**: Row actions invalidate `["reconcile"]`, `["kpi"]` for real-time UI updates
+   - **Key Features**:
+     - Clear visual explanation of domain mapping in info banner
+     - AutoPath indicators show which entities will be auto-created
+     - Smart filtering (conflicts vs. missing)
+     - Responsive actions (different buttons for different statuses)
+     - Optimistic updates with rollback on error
+     - Confirmation for destructive updates
+   - **Testing**: Ready for end-to-end testing with live Zammad/Kimai instances
+   - **Compliance**: New `/api/v1/reconcile` endpoint; maintains backward compatibility with existing conflict endpoints
+
+2. **Sync Error Handling Refactor (November 2025)**:
    - **Problem**: Silent failures (e.g., invalid Zammad URL) marked sync as "completed" with 0 entries; no UI feedback; excessive DEBUG logs.
    - **Root Cause**: Zammad connector caught exceptions and returned empty lists; sync continued without error propagation.
    - **Fixes**:

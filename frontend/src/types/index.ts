@@ -27,6 +27,12 @@ export interface KimaiConnectorConfig {
   default_country?: string
   default_currency?: string
   default_timezone?: string
+  // Time rounding configuration (matching Kimai's rounding behavior for better reconciliation)
+  rounding_mode?: 'default' | 'closest' | 'floor' | 'ceil'
+  round_begin?: number  // minutes, 0 = disabled
+  round_end?: number    // minutes, 0 = disabled
+  round_duration?: number  // minutes, 0 = disabled
+  rounding_days?: number[]  // Days when rounding applies (0=Mon, 6=Sun)
 }
 
 export interface Connector {
@@ -212,6 +218,8 @@ export interface WorklogData {
   activity: string;
   user: string;
   startedAt: string;
+  ticketNumber?: string;
+  description?: string;
 }
 
 export interface AutoPath {
@@ -229,6 +237,8 @@ export interface DiffItem {
   source?: WorklogData;
   target?: WorklogData;
   autoPath?: AutoPath;
+  conflictReason?: string;
+  reasonCode?: string;
 }
 
 export interface ReconcileResponse {

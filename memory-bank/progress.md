@@ -67,6 +67,14 @@
 - **Deployment**: Docker Compose (V1); Kubernetes Helm chart planned for V2
 
 ## Recent Changes Summary (November 2025)
+- **Fixed Reconcile Screen Data Extraction**:
+  - **Problem**: Reconcile screen showed "Unknown" for activity types and users despite rich data in database
+  - **Root Cause**: Sync service created conflicts without populating `zammad_data` and `kimai_data` JSONB fields
+  - **Fix**: Added `zammad_data=z_entry.model_dump()` and `kimai_data=k_entry.model_dump()` to all conflict creation points
+  - **Impact**: Reconcile endpoint now extracts real user names, activity types, descriptions from JSONB data
+  - **Result**: Complete metadata display in UI; existing conflicts unaffected (new conflicts after sync show full data)
+  - **Files Modified**: `backend/app/services/sync_service.py` (conflict creation logic)
+
 - **Sync Error Handling Refactor**:
   - Fixed silent failures in Zammad connector (now raises connection/auth errors)
   - Optimized logging: Reduced DEBUG noise, added error classification (connection, auth, permissions, timeouts)

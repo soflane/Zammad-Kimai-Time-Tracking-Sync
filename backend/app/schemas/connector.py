@@ -1,4 +1,4 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pydantic import BaseModel, HttpUrl
 
@@ -11,6 +11,13 @@ class KimaiConnectorConfig(BaseModel):
     default_country: str = "BE"
     default_currency: str = "EUR"
     default_timezone: str = "Europe/Brussels"
+    
+    # Time rounding configuration (matching Kimai's rounding behavior for better reconciliation)
+    rounding_mode: Optional[str] = 'default'  # 'default', 'closest', 'floor', 'ceil'
+    round_begin: Optional[int] = 0  # minutes, 0 = disabled
+    round_end: Optional[int] = 0    # minutes, 0 = disabled
+    round_duration: Optional[int] = 0  # minutes, 0 = disabled
+    rounding_days: Optional[List[int]] = [0, 1, 2, 3, 4, 5, 6]  # Days when rounding applies (0=Mon, 6=Sun)
 
 class ConnectorBase(BaseModel):
     name: str
