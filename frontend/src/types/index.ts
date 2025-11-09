@@ -202,3 +202,44 @@ export interface ApiError {
   detail: string
   status_code?: number
 }
+
+// Reconcile types
+export type DiffStatus = 'missing' | 'conflict';
+export type RowOp = 'keep-target' | 'update' | 'create' | 'skip';
+
+export interface WorklogData {
+  minutes: number;
+  activity: string;
+  user: string;
+  startedAt: string;
+}
+
+export interface AutoPath {
+  createCustomer?: boolean;
+  createProject?: boolean;
+  createTimesheet?: boolean;
+}
+
+export interface DiffItem {
+  id: string;
+  status: DiffStatus;
+  ticketId: string;
+  ticketTitle: string;
+  customer: string;
+  source?: WorklogData;
+  target?: WorklogData;
+  autoPath?: AutoPath;
+}
+
+export interface ReconcileResponse {
+  items: DiffItem[];
+  total: number;
+  counts: {
+    conflicts: number;
+    missing: number;
+  };
+}
+
+export interface RowActionRequest {
+  op: RowOp;
+}

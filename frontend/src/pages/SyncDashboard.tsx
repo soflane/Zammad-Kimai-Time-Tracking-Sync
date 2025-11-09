@@ -42,9 +42,9 @@ import { Progress } from "@/components/ui/progress";
 import { DialogClose } from "@/components/ui/dialog";
 import { useToast } from "@/hooks/use-toast";
 
-import { connectorService, mappingService, syncService, conflictService, auditService } from "@/services/api.service";
+import { connectorService, mappingService, syncService, conflictService, auditService, reconcileService } from "@/services/api.service";
 import type { ValidationResponse } from "@/types";
-import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse, Activity as ActivityType } from "@/types";
+import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse, Activity as ActivityType, DiffItem, ReconcileResponse, RowOp } from "@/types";
 
 // Utility UI components
 const Pill = ({ ok }: { ok: boolean }) => (
@@ -753,6 +753,236 @@ function computeDuration(start: string, end: string): string {
   return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
+// Reconcile Section Component
+function ReconcileSection() {
+  const [activeFilter, setActiveFilter] = useState<'conflicts' | 'missing'>('conflicts');
+  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; itemId: string; op: RowOp } | null>(null);
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+
+  // Fetch reconcile data
+  const { data: reconcileData, isLoading } = useQuery<ReconcileResponse>({
+    queryKey: ["reconcile", activeFilter],
+    queryFn: () => reconcileService.getDiff(activeFilter)
+  });
+
+  // Row action mutation with optimistic updates
+  const actionMutation = useMutation({
+    mutationFn: ({ id, op }: { id: string; op: RowOp }) => reconcileService.performAction(id, op),
+    onMutate: async ({ id }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["reconcile", activeFilter] });
+      
+      // Snapshot previous value
+      const previousData = queryClient.getQueryData<ReconcileResponse>(["reconcile", activeFilter]);
+      
+      // Optimistically remove the item
+      if (previousData) {
+        queryClient.setQueryData<ReconcileResponse>(["reconcile", activeFilter], {
+          ...previousData,
+          items: previousData.items.filter(item => item.id !== id),
+          total: previousData.total - 1
+        });
+      }
+      
+      return { previousData };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reconcile"] });
+      queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      toast({ title: "Success", description: "Action completed successfully" });
+    },
+    onError: (error: any, variables, context) => {
+      // Rollback on error
+      if (context?.previousData) {
+        queryClient.setQueryData(["reconcile", activeFilter], context.previousData);
+      }
+      const errorMsg = error.response?.data?.detail || error.message || 'Action failed';
+      toast({ title: "Error", description: errorMsg, variant: "destructive" });
+    }
+  });
+
+  const handleAction = (itemId: string, op: RowOp) => {
+    if (op === 'update') {
+      // Show confirmation dialog for update
+      setConfirmDialog({ open: true, itemId, op });
+    } else {
+      // Execute immediately for other actions
+      actionMutation.mutate({ id: itemId, op });
+    }
+  };
+
+  const handleConfirm = () => {
+    if (confirmDialog) {
+      actionMutation.mutate({ id: confirmDialog.itemId, op: confirmDialog.op });
+      setConfirmDialog(null);
+    }
+  };
+
+  const items = reconcileData?.items || [];
+  const counts = reconcileData?.counts || { conflicts: 0, missing: 0 };
+
+  return (
+    <>
+      <Tabs value={activeFilter} onValueChange={(v) => setActiveFilter(v as 'conflicts' | 'missing')} className="w-full">
+        <TabsList>
+          <TabsTrigger value="conflicts">Conflicts ({counts.conflicts})</TabsTrigger>
+          <TabsTrigger value="missing">Missing ({counts.missing})</TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value={activeFilter} className="space-y-3">
+          <Card>
+            <CardHeader>
+              <CardTitle>Diff Rows</CardTitle>
+              <CardDescription>
+                {activeFilter === 'conflicts' 
+                  ? 'Entries that exist in both systems with different values' 
+                  : 'Entries missing in Kimai that need to be synced'}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {isLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              ) : items.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  No {activeFilter} found. Run a sync to detect differences.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {items.map((item) => (
+                    <div key={item.id} className="border rounded-lg p-4 space-y-3">
+                      {/* Header */}
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-medium text-base">
+                            {item.ticketId} · {item.ticketTitle}
+                          </div>
+                          <div className="text-sm text-muted-foreground">
+                            Customer: {item.customer}
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <Badge variant={item.status === 'conflict' ? 'destructive' : 'secondary'}>
+                            {item.status}
+                          </Badge>
+                          <Badge variant="outline">Zammad → Kimai</Badge>
+                        </div>
+                      </div>
+
+                      {/* Data comparison */}
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {item.source && (
+                          <div className="space-y-1">
+                            <div className="text-sm font-medium text-muted-foreground">Source (Zammad)</div>
+                            <div className="bg-muted/50 rounded p-2 text-sm space-y-1">
+                              <div><strong>Time:</strong> {item.source.minutes} min</div>
+                              <div><strong>Activity:</strong> {item.source.activity}</div>
+                              <div><strong>User:</strong> {item.source.user}</div>
+                              <div className="text-xs text-muted-foreground">{new Date(item.source.startedAt).toLocaleString()}</div>
+                            </div>
+                          </div>
+                        )}
+                        
+                        {item.target && (
+                          <div className="space-y-1">
+                            <div className="text-sm font-medium text-muted-foreground">Target (Kimai)</div>
+                            <div className="bg-muted/50 rounded p-2 text-sm space-y-1">
+                              <div><strong>Time:</strong> {item.target.minutes} min</div>
+                              <div><strong>Activity:</strong> {item.target.activity}</div>
+                              <div><strong>User:</strong> {item.target.user}</div>
+                              <div className="text-xs text-muted-foreground">{new Date(item.target.startedAt).toLocaleString()}</div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* AutoPath chip */}
+                      {item.autoPath && (item.autoPath.createCustomer || item.autoPath.createProject || item.autoPath.createTimesheet) && (
+                        <Alert className="bg-blue-50 border-blue-200">
+                          <Badge variant="secondary" className="mb-2">Will sync automatically</Badge>
+                          <AlertDescription className="text-sm">
+                            Will auto-create: 
+                            {item.autoPath.createCustomer && ' customer (if needed)'} 
+                            {item.autoPath.createProject && ` → project (${item.ticketId})`} 
+                            {item.autoPath.createTimesheet && ' → timesheet with tag Zammad'}
+                          </AlertDescription>
+                        </Alert>
+                      )}
+
+                      {/* Actions */}
+                      <div className="flex gap-2 pt-2">
+                        {item.status === 'conflict' ? (
+                          <>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleAction(item.id, 'keep-target')}
+                              disabled={actionMutation.isPending}
+                            >
+                              Keep Target
+                            </Button>
+                            <Button 
+                              variant="default" 
+                              size="sm"
+                              onClick={() => handleAction(item.id, 'update')}
+                              disabled={actionMutation.isPending}
+                            >
+                              Update from Zammad
+                            </Button>
+                          </>
+                        ) : (
+                          <>
+                            <Button 
+                              variant="outline" 
+                              size="sm"
+                              onClick={() => handleAction(item.id, 'skip')}
+                              disabled={actionMutation.isPending}
+                            >
+                              Skip
+                            </Button>
+                            <Button 
+                              variant="default" 
+                              size="sm"
+                              onClick={() => handleAction(item.id, 'create')}
+                              disabled={actionMutation.isPending}
+                            >
+                              Create in Kimai
+                            </Button>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
+
+      {/* Confirmation Dialog */}
+      <Dialog open={confirmDialog?.open || false} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Confirm Update</DialogTitle>
+            <DialogDescription>
+              This will update the Kimai timesheet with data from Zammad. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline">Cancel</Button>
+            </DialogClose>
+            <Button onClick={handleConfirm} disabled={actionMutation.isPending}>
+              {actionMutation.isPending ? 'Updating...' : 'Confirm Update'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 // Main Dashboard Component
 export default function SyncDashboard() {
   const [query, setQuery] = useState("");
@@ -1216,99 +1446,23 @@ export default function SyncDashboard() {
           <section id="reconcile" className="space-y-4">
             <SectionHeader
               title="Reconcile"
-              description="Match, diff and resolve between systems"
-              actions={
-                <div className="flex items-center gap-2">
-                  <Button 
-                    size="sm" 
-                    variant="outline"
-                    onClick={() => bulkResolveMutation.mutate(Array.from(selectedConflicts))}
-                    disabled={selectedConflicts.size === 0}
-                    className="gap-2"
-                  >
-                    <Check className="h-4 w-4"/> Apply selected ({selectedConflicts.size})
-                  </Button>
-                </div>
-              }
+              description="Review conflicts and missing entries for manual resolution"
             />
-            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-              <TabsList>
-                <TabsTrigger value="all">All ({conflicts?.length || 0})</TabsTrigger>
-                <TabsTrigger value="matches">Matches</TabsTrigger>
-                <TabsTrigger value="missing">Missing</TabsTrigger>
-                <TabsTrigger value="conflicts">Conflicts ({kpi[2]?.value || 0})</TabsTrigger>
-              </TabsList>
-              <TabsContent value={activeTab} className="space-y-3">
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Diff view</CardTitle>
-                    <CardDescription>Ticket → Project • Worklog → Timesheet</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead><Input type="checkbox" checked={selectedConflicts.size === filteredConflicts.length} onChange={(e) => e.target.checked ? setSelectedConflicts(new Set(filteredConflicts.map(c => c.id))) : setSelectedConflicts(new Set())} /></TableHead>
-                          <TableHead>Ticket / Description</TableHead>
-                          <TableHead>Customer / Project</TableHead>
-                          <TableHead>Zammad Time</TableHead>
-                          <TableHead>Kimai Time</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {filteredConflicts.map((conflict) => (
-                          <TableRow key={conflict.id}>
-                            <TableCell>
-                              <Input 
-                                type="checkbox" 
-                                checked={selectedConflicts.has(conflict.id)}
-                                onChange={(e) => {
-                                  const newSet = new Set(selectedConflicts);
-                                  if (e.target.checked) newSet.add(conflict.id); else newSet.delete(conflict.id);
-                                  setSelectedConflicts(newSet);
-                                }}
-                              />
-                            </TableCell>
-                            <TableCell>
-                              <div className="font-medium">{conflict.ticket_number || 'N/A'}</div>
-                              <div className="text-sm text-muted-foreground">{conflict.notes || 'N/A'}</div>
-                            </TableCell>
-                            <TableCell>
-                              <div>{conflict.customer_name}</div>
-                              <div className="text-sm text-muted-foreground">{conflict.project_name}</div>
-                            </TableCell>
-                            <TableCell>{conflict.zammad_time_minutes} min</TableCell>
-                            <TableCell>{conflict.kimai_duration_minutes} min</TableCell>
-                            <TableCell><Badge>{conflict.conflict_type || conflict.resolution_status}</Badge></TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex justify-end gap-2">
-                                <Button 
-                                  variant="outline" 
-                                  size="sm" 
-                                  onClick={() => resolveMutation.mutate(conflict.id)}
-                                  disabled={conflict.resolution_status === 'resolved'}
-                                >
-                                  Resolve
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                        {filteredConflicts.length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                              No {activeTab} found. Run a sync to detect differences.
-                            </TableCell>
-                          </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </TabsContent>
-            </Tabs>
+            
+            {/* Info Banner */}
+            <Alert>
+              <AlertTriangle className="h-4 w-4" />
+              <AlertDescription>
+                <div className="font-medium mb-1">Sync Mapping Rules:</div>
+                <ul className="text-sm space-y-1 list-disc list-inside">
+                  <li><strong>Ticket → Project:</strong> Each Zammad ticket becomes a Kimai project (title = ticket number)</li>
+                  <li><strong>Customer Auto-creation:</strong> If customer missing in Kimai, created from Zammad user/org. All Zammad org users aggregate to the same customer</li>
+                  <li><strong>Worklog → Timesheet:</strong> Each Zammad worklog becomes a Kimai timesheet with mapped activity + <code className="bg-muted px-1 rounded">Zammad</code> tag</li>
+                </ul>
+              </AlertDescription>
+            </Alert>
+
+            <ReconcileSection />
           </section>
 
           {/* AUDIT */}

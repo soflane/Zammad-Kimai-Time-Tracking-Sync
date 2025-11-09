@@ -16,7 +16,9 @@ import type {
   SyncRequest,
   SyncResponse,
   ValidationResponse,
-  Activity
+  Activity,
+  RowOp,
+  ReconcileResponse
 } from '@/types'
 
 // Authentication
@@ -177,6 +179,21 @@ export const auditService = {
     const response = await api.get(`/audit-logs/export?format=${format}`, {
       responseType: 'blob'
     })
+    return response.data
+  }
+}
+
+// Reconcile
+export const reconcileService = {
+  getDiff: async (filter: 'conflicts' | 'missing', page: number = 1, pageSize: number = 50) => {
+    const response = await api.get('/reconcile/', {
+      params: { filter, page, pageSize }
+    })
+    return response.data
+  },
+
+  performAction: async (id: string, op: RowOp) => {
+    const response = await api.post(`/reconcile/row/${id}`, { op })
     return response.data
   }
 }
