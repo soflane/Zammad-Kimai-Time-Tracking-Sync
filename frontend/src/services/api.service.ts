@@ -147,8 +147,25 @@ export const syncService = {
     return response.data
   },
 
-  getSyncHistory: async (): Promise<SyncRun[]> => {
-    const response = await api.get('/sync/runs')
+  getSyncHistory: async (status?: string, startDate?: string, endDate?: string, search?: string): Promise<SyncRun[]> => {
+    const params: any = {}
+    if (status) params.status = status
+    if (startDate) params.start_date = startDate
+    if (endDate) params.end_date = endDate
+    if (search) params.search = search
+    const response = await api.get('/sync/runs', { params })
+    return response.data
+  },
+
+  exportSyncRuns: async (format: 'csv' = 'csv', status?: string, startDate?: string, endDate?: string): Promise<Blob> => {
+    const params: any = { format }
+    if (status) params.status = status
+    if (startDate) params.start_date = startDate
+    if (endDate) params.end_date = endDate
+    const response = await api.get('/sync/runs/export', { 
+      params, 
+      responseType: 'blob' 
+    })
     return response.data
   },
 
@@ -165,13 +182,13 @@ export const syncService = {
 
 // Audit Logs
 export const auditService = {
-  getAll: async (params?: {
+  getAuditLogs: async (limit = 10, runId?: number, params?: {
     skip?: number
-    limit?: number
     action?: string
-    entity_type?: string
+    start_date?: string
   }): Promise<AuditLog[]> => {
-    const response = await api.get('/audit-logs', { params })
+    const allParams = { ...params, limit, run_id: runId }
+    const response = await api.get('/audit-logs', { params: allParams })
     return response.data
   },
 

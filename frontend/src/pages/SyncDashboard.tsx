@@ -1094,6 +1094,31 @@ function ReconcileSection() {
   );
 }
 
+// AuditLogs Component
+function AuditLogs({ runId }: { runId: number }) {
+  const { data: logs = [] } = useQuery({
+    queryKey: ["auditLogs", runId],
+    queryFn: () => auditService.getAuditLogs({ limit: 20, runId }),
+  });
+
+  return (
+    <div className="space-y-2">
+      <h4 className="font-medium">Logs for Run #{runId}</h4>
+      {logs.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No logs available.</p>
+      ) : (
+        <ul className="text-sm space-y-1">
+          {logs.map((log: AuditLog, index: number) => (
+            <li key={index} className="text-xs text-muted-foreground">
+              {log.action} - {log.created_at}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 // Main Dashboard Component
 export default function SyncDashboard() {
   const [query, setQuery] = useState("");
@@ -1102,6 +1127,10 @@ export default function SyncDashboard() {
   const [testResults, setTestResults] = useState<Record<number, { valid: boolean; message: string; timestamp: string }>>({});
   const [pendingTests, setPendingTests] = useState<Set<number>>(new Set());
   const [testAllPending, setTestAllPending] = useState(false);
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1117,8 +1146,8 @@ export default function SyncDashboard() {
   });
 
   const { data: syncRuns = [] } = useQuery<SyncRun[]>({
-    queryKey: ["syncRuns"],
-    queryFn: syncService.getSyncHistory
+    queryKey: ["syncRuns", statusFilter, search, startDate, endDate],
+    queryFn: () => syncService.getSyncHistory(statusFilter, startDate, endDate, search),
   });
 
   const { data: conflicts = [] } = useQuery<Conflict[]>({
@@ -1128,7 +1157,7 @@ export default function SyncDashboard() {
 
   const { data: auditLogs = [] } = useQuery<AuditLog[]>({
     queryKey: ["auditLogs"],
-    queryFn: () => auditService.getAll({ limit: 10 })
+    queryFn: () => auditService.getAuditLogs({ limit: 10 })
   });
 
   const { data: kpiData } = useQuery({
@@ -1165,7 +1194,7 @@ export default function SyncDashboard() {
   ], [connectors, mappings, kpiData]);
 
   const recentRuns = useMemo(() => 
-    syncRuns.slice(0, 3).map(run => ({
+    syncRuns.slice(0, 3).map((run: SyncRun) => ({
       id: `#${run.id}`,
       status: run.status === 'completed' ? 'success' : run.status === 'running' ? 'running' : 'failed',
       duration: run.ended_at ? computeDuration(run.started_at, run.ended_at) : "00:00",
@@ -1295,7 +1324,6 @@ export default function SyncDashboard() {
 
     queryClient.invalidateQueries({ queryKey: ["connectors"] });
   };
-
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/40">
@@ -1583,40 +1611,118 @@ export default function SyncDashboard() {
               description="Deterministic logs of every change and API call"
             />
             <Card>
-              <CardHeader>
-                <CardTitle>Run history</CardTitle>
-                <CardDescription>Immutable audit trail</CardDescription>
+              <CardHeader className="flex flex-row items-end justify-between gap-4">
+                <div>
+                  <CardTitle>Run history</CardTitle>
+                  <CardDescription>Immutable audit trail</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Select value={statusFilter} onValueChange={setStatusFilter}>
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Filter status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                      <SelectItem value="failed">Failed</SelectItem>
+                      <SelectItem value="running">Running</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Input placeholder="Search ID or error" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
+                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
+                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
+                </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {recentRuns.map((r) => {
-                  const progress = r.status === 'success' ? 100 : r.status === 'running' ? 50 : 0;
-                  return (
-                    <div key={r.id} className="grid items-center gap-3 rounded-xl border p-3 md:grid-cols-[auto_1fr_auto]">
-                      <div className="flex items-center gap-2">
-                        <History className="h-4 w-4" />
-                        <div className="text-sm font-medium">{r.id}</div>
-                      </div>
-                      <Progress value={progress} />
-                      <div className="flex items-center gap-2">
-                        <Badge variant={r.status === "success" ? "default" : r.status === "running" ? "secondary" : "destructive"}>{r.status === 'running' ? 'running' : r.status === 'success' ? 'completed' : 'failed'}</Badge>
-                        <Badge variant="outline">{r.duration}</Badge>
-                        <span className="text-xs text-muted-foreground">{r.at}</span>
-                      </div>
-                    </div>
-                  );
-                })}
-                {syncRuns.length === 0 && (
-                  <div className="text-center text-muted-foreground py-8">
-                    No sync runs yet. Trigger a sync to start tracking.
+              <CardContent>
+                <div className="space-y-4">
+                  <Button variant="outline" onClick={async () => {
+                    try {
+                      const blob = await syncService.exportSyncRuns('csv', statusFilter, startDate, endDate);
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'sync-history.csv';
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      toast({ title: "Export started", description: "Download will begin shortly" });
+                    } catch (error) {
+                      toast({ title: "Export failed", description: "Failed to generate export", variant: "destructive" });
+                    }
+                  }}>
+                    Export CSV
+                  </Button>
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Started</TableHead>
+                          <TableHead>Duration</TableHead>
+                          <TableHead>Synced</TableHead>
+                          <TableHead>Already Synced</TableHead>
+                          <TableHead>Skipped</TableHead>
+                          <TableHead>Failed</TableHead>
+                          <TableHead>Conflicts</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {syncRuns.map((run: SyncRun) => (
+                          <TableRow key={run.id}>
+                            <TableCell>#{run.id}</TableCell>
+                            <TableCell>
+                              <Badge variant={run.status === 'completed' ? "default" : run.status === 'running' ? "secondary" : "destructive"}>
+                                {run.status}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>{new Date(run.started_at).toLocaleString()}</TableCell>
+                            <TableCell>{run.ended_at ? computeDuration(run.started_at, run.ended_at) : 'Running'}</TableCell>
+                            <TableCell><Badge variant="default">{run.entries_synced}</Badge></TableCell>
+                            <TableCell><Badge variant="secondary">{run.entries_already_synced ?? 0}</Badge></TableCell>
+                            <TableCell><Badge variant="secondary">{run.entries_skipped ?? 0}</Badge></TableCell>
+                            <TableCell><Badge variant="destructive">{run.entries_failed ?? 0}</Badge></TableCell>
+                            <TableCell><Badge variant="destructive">{run.conflicts_detected}</Badge></TableCell>
+                            <TableCell>
+                              <div className="flex gap-2">
+                                <Dialog>
+                                  <DialogTrigger asChild>
+                                    <Button variant="outline" size="sm">
+                                      View Logs
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent>
+                                    <DialogHeader>
+                                      <DialogTitle>Logs for Run #{run.id}</DialogTitle>
+                                    </DialogHeader>
+                                    <AuditLogs runId={run.id} />
+                                  </DialogContent>
+                                </Dialog>
+                                {run.status === 'failed' && (
+                                  <Button variant="outline" size="sm" onClick={() => runSyncMutation.mutate()}>
+                                    Retry
+                                  </Button>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
                   </div>
-                )}
+                  {syncRuns.length === 0 && (
+                    <div className="text-center text-muted-foreground py-8">
+                      <p>No sync runs match the filter. Trigger a sync to start tracking executions.</p>
+                      <Button onClick={() => runSyncMutation.mutate()} className="mt-4">
+                        <Play className="h-4 w-4 mr-2" />
+                        Run Sync Now
+                      </Button>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
           </section>
-
-          <footer className="pb-10 pt-4 text-center text-xs text-muted-foreground">
-            Built with ♥ by an Belgian IT freelancer.
-          </footer>
         </main>
       </div>
     </div>

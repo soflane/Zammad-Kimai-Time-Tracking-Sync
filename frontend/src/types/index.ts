@@ -145,13 +145,16 @@ export interface ConflictUpdate {
 
 export interface SyncRun {
   id: number
-  connector_id: number
+  trigger_type?: string
+  started_at: string
+  ended_at?: string
   status: 'running' | 'completed' | 'failed'
   entries_fetched: number
   entries_synced: number
+  entries_already_synced?: number
+  entries_skipped?: number
+  entries_failed?: number
   conflicts_detected: number
-  started_at: string
-  ended_at?: string
   error_message?: string
 }
 

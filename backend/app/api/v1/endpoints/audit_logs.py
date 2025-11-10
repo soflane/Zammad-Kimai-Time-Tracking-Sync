@@ -20,6 +20,7 @@ async def read_audit_logs(
     limit: int = 100,
     action: Optional[str] = Query(None, description="Filter by action"),
     start_date: Optional[str] = Query(None, description="Filter created_at >= YYYY-MM-DD"),
+    run_id: Optional[int] = Query(None, description="Filter by sync_run_id"),
     current_user: Annotated[User, Depends(get_current_active_user)] = None,
     db: Session = Depends(get_db)
 ):
@@ -30,6 +31,8 @@ async def read_audit_logs(
     if start_date:
         from datetime import datetime
         query = query.filter(AuditLog.created_at >= datetime.fromisoformat(f"{start_date}T00:00:00"))
+    if run_id:
+        query = query.filter(AuditLog.sync_run_id == run_id)
     logs = query.offset(skip).limit(limit).all()
     return logs
 

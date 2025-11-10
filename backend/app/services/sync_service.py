@@ -507,7 +507,9 @@ Zammad URL: {zammad_url}
             sync_run.end_time = datetime.now(ZoneInfo('Europe/Brussels'))
             sync_run.status = 'completed'
             sync_run.entries_synced = stats["created"]
-            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0)
+            sync_run.entries_already_synced = stats["reconciled_matches"]
+            sync_run.entries_skipped = stats["skipped"] + stats.get("ignored_unmapped", 0)
+            sync_run.entries_failed = stats.get("unmapped", 0)
             sync_run.conflicts_detected = stats["conflicts"]
             self.db.commit()
 
@@ -540,7 +542,9 @@ Zammad URL: {zammad_url}
             sync_run.status = 'failed'
             sync_run.error_message = error_type
             sync_run.entries_synced = stats["created"]
-            sync_run.entries_failed = stats.get("unmapped", 0) + stats.get("ignored_unmapped", 0) + 1
+            sync_run.entries_already_synced = stats["reconciled_matches"]
+            sync_run.entries_skipped = stats["skipped"] + stats.get("ignored_unmapped", 0)
+            sync_run.entries_failed = stats.get("unmapped", 0) + 1
             sync_run.conflicts_detected = stats["conflicts"]
             self.db.commit()
 

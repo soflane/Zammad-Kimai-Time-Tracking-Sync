@@ -21,6 +21,8 @@ class SyncRun(Base):
     # Statistics
     entries_fetched = Column(Integer, default=0, nullable=False)
     entries_synced = Column(Integer, default=0, nullable=False)
+    entries_already_synced = Column(Integer, default=0, nullable=False)
+    entries_skipped = Column(Integer, default=0, nullable=False)
     entries_failed = Column(Integer, default=0, nullable=False)
     conflicts_detected = Column(Integer, default=0, nullable=False)
     

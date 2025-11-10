@@ -18,9 +18,12 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import decrypt_data
 from app.models.conflict import Conflict
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from datetime import timedelta
 from zoneinfo import ZoneInfo
+from fastapi.responses import Response
+import csv
+from io import StringIO
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -159,12 +162,30 @@ async def run_sync(
 @router.get("/runs", response_model=list[dict])
 async def get_sync_runs(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 20,
+    status: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    search: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: Annotated[User, Depends(get_current_active_user)] = None
 ):
     """Retrieve history of sync runs."""
-    sync_runs = db.query(SyncRun).order_by(SyncRun.start_time.desc()).offset(skip).limit(limit).all()
+    q = db.query(SyncRun).order_by(SyncRun.start_time.desc())
+    if status and status != "all":
+        q = q.filter(SyncRun.status == status)
+    if start_date:
+        q = q.filter(SyncRun.start_time >= datetime.fromisoformat(start_date))
+    if end_date:
+        q = q.filter(SyncRun.start_time <= datetime.fromisoformat(end_date + 'T23:59:59'))
+    if search:
+        q = q.filter(
+            or_(
+                SyncRun.id.like(f"%{search}%"),
+                SyncRun.error_message.like(f"%{search}%")
+            )
+        )
+    sync_runs = q.offset(skip).limit(limit).all()
     return [
         {
             "id": sr.id,
@@ -174,6 +195,8 @@ async def get_sync_runs(
             "status": sr.status,
             "entries_fetched": sr.entries_fetched,
             "entries_synced": sr.entries_synced,
+            "entries_already_synced": sr.entries_already_synced,
+            "entries_skipped": sr.entries_skipped,
             "entries_failed": sr.entries_failed,
             "conflicts_detected": sr.conflicts_detected,
             "error_message": sr.error_message
