@@ -1,5 +1,5 @@
 from typing import Annotated, Optional, List
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, Request
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -23,6 +23,7 @@ from app.connectors.zammad_connector import ZammadConnector
 from app.connectors.base import TimeEntryNormalized
 from app.models.connector import Connector as DBConnector
 from app.utils.encrypt import decrypt_data
+from app.utils.audit_logger import create_audit_log
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -240,6 +241,7 @@ async def get_reconcile_diff(
 
 @router.post("/row/{row_id}", status_code=status.HTTP_200_OK)
 async def perform_row_action(
+    request: Request,
     row_id: str,
     action: RowActionRequest,
     db: Session = Depends(get_db),
@@ -483,6 +485,22 @@ Zammad URL: {zammad_url}
     
     db.commit()
     db.refresh(conflict)
+    
+    # Log conflict resolution
+    create_audit_log(
+        db=db,
+        request=request,
+        action="conflict_resolved",
+        entity_type="conflict",
+        entity_id=conflict.id,
+        user=current_user.username if current_user else None,
+        details={
+            "operation": action.op,
+            "conflict_type": conflict.conflict_type,
+            "ticket_number": conflict.ticket_number,
+            "resolution_action": conflict.resolution_action
+        }
+    )
     
     return {
         "status": "success",

@@ -5,7 +5,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Annotated
 
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, FastAPI, HTTPException, status, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm
 
@@ -14,6 +14,9 @@ from app.config import settings
 from app import __version__
 from app.auth import create_access_token, authenticate_user, get_current_active_user
 from app.schemas.auth import Token, User
+from app.database import get_db
+from app.utils.audit_logger import create_audit_log
+from sqlalchemy.orm import Session
 
 # Custom TRACE level
 logging.TRACE = 5
@@ -83,18 +86,44 @@ app.add_middleware(
 )
 
 @app.post("/token", response_model=Token)
-async def login_for_access_token(form_data: Annotated[OAuth2PasswordRequestForm, Depends()]):
+async def login_for_access_token(
+    request: Request,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+    db: Session = Depends(get_db)
+):
     user = authenticate_user(form_data.username, form_data.password)
     if not user:
+        # Log failed login attempt
+        create_audit_log(
+            db=db,
+            request=request,
+            action="login_failed",
+            user=form_data.username,
+            details={"reason": "Invalid credentials"}
+        )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    
+    # Log successful login
+    create_audit_log(
+        db=db,
+        request=request,
+        action="login_success",
+        user=user.username
+    )
+    
     access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
     access_token = create_access_token(
         data={"sub": user.username}, expires_delta=access_token_expires
     )
+    
+    # TODO: Implement rate limiting for failed login attempts
+    # After 5 failed attempts from same IP in 15 minutes: temporary block
+    # Store failed attempts in cache/database with IP + username
+    
     return {"access_token": access_token, "token_type": "bearer"}
 
 @app.get("/users/me/", response_model=User)

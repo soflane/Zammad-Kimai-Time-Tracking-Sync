@@ -24,7 +24,7 @@ import {
 
 import ZammadIcon from '@/assets/icons/zammad-logo-only.svg?react'
 import KimaiIcon from '@/assets/icons/kimai-logo-only.svg?react'
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis } from "recharts";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import { Button } from "@/components/ui/button";
@@ -40,7 +40,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Progress } from "@/components/ui/progress";
 import { DialogClose } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/context/AuthContext";
 
 import { connectorService, mappingService, syncService, conflictService, auditService, reconcileService } from "@/services/api.service";
 import type { ValidationResponse } from "@/types";
@@ -1098,7 +1100,7 @@ function ReconcileSection() {
 function AuditLogs({ runId }: { runId: number }) {
   const { data: logs = [] } = useQuery({
     queryKey: ["auditLogs", runId],
-    queryFn: () => auditService.getAuditLogs({ limit: 20, runId }),
+    queryFn: () => auditService.getAuditLogs({ limit: 20 }),
   });
 
   return (
@@ -1131,6 +1133,12 @@ export default function SyncDashboard() {
   const [search, setSearch] = useState("");
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [auditTab, setAuditTab] = useState<"sync-history" | "audit-logs">("sync-history");
+  const [auditActionType, setAuditActionType] = useState<"all" | "access" | "sync">("all");
+  const [auditSearch, setAuditSearch] = useState("");
+  const [auditStartDate, setAuditStartDate] = useState("");
+  const [auditEndDate, setAuditEndDate] = useState("");
+  const [ipFilter, setIpFilter] = useState("");
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1156,8 +1164,15 @@ export default function SyncDashboard() {
   });
 
   const { data: auditLogs = [] } = useQuery<AuditLog[]>({
-    queryKey: ["auditLogs"],
-    queryFn: () => auditService.getAuditLogs({ limit: 10 })
+    queryKey: ["auditLogs", auditActionType, auditSearch, auditStartDate, auditEndDate, ipFilter],
+    queryFn: () => auditService.getAuditLogs({ 
+      limit: 50, 
+      action_type: auditActionType, 
+      start_date: auditStartDate, 
+      end_date: auditEndDate, 
+      user: auditSearch, 
+      ip_address: ipFilter 
+    })
   });
 
   const { data: kpiData } = useQuery({
@@ -1239,6 +1254,7 @@ export default function SyncDashboard() {
       queryClient.invalidateQueries({ queryKey: ["syncRuns"] });
       queryClient.invalidateQueries({ queryKey: ["conflicts"] });
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
+      queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
       
       if (response.status === 'failed') {
         toast({ 
@@ -1415,7 +1431,7 @@ export default function SyncDashboard() {
                       </defs>
                       <CartesianGrid vertical={false} />
                       <XAxis dataKey="day" tickLine={false} axisLine={false} />
-                      <Tooltip />
+                      <RechartsTooltip />
                       <Area type="monotone" dataKey="minutes" strokeWidth={2} fillOpacity={1} fill="url(#fill)" />
                     </AreaChart>
                   </ResponsiveContainer>
@@ -1613,113 +1629,209 @@ export default function SyncDashboard() {
             <Card>
               <CardHeader className="flex flex-row items-end justify-between gap-4">
                 <div>
-                  <CardTitle>Run history</CardTitle>
-                  <CardDescription>Immutable audit trail</CardDescription>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Select value={statusFilter} onValueChange={setStatusFilter}>
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Filter status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="failed">Failed</SelectItem>
-                      <SelectItem value="running">Running</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <Input placeholder="Search ID or error" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
-                  <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
-                  <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
+                  <CardTitle>Audit & History</CardTitle>
+                  <CardDescription>Sync runs and audit logs</CardDescription>
                 </div>
               </CardHeader>
               <CardContent>
-                <div className="space-y-4">
-                  <Button variant="outline" onClick={async () => {
-                    try {
-                      const blob = await syncService.exportSyncRuns('csv', statusFilter, startDate, endDate);
-                      const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
-                      a.href = url;
-                      a.download = 'sync-history.csv';
-                      a.click();
-                      URL.revokeObjectURL(url);
-                      toast({ title: "Export started", description: "Download will begin shortly" });
-                    } catch (error) {
-                      toast({ title: "Export failed", description: "Failed to generate export", variant: "destructive" });
-                    }
-                  }}>
-                    Export CSV
-                  </Button>
-                  <div className="rounded-md border">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>ID</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Started</TableHead>
-                          <TableHead>Duration</TableHead>
-                          <TableHead>Synced</TableHead>
-                          <TableHead>Already Synced</TableHead>
-                          <TableHead>Skipped</TableHead>
-                          <TableHead>Failed</TableHead>
-                          <TableHead>Conflicts</TableHead>
-                          <TableHead>Actions</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {syncRuns.map((run: SyncRun) => (
-                          <TableRow key={run.id}>
-                            <TableCell>#{run.id}</TableCell>
-                            <TableCell>
-                              <Badge variant={run.status === 'completed' ? "default" : run.status === 'running' ? "secondary" : "destructive"}>
-                                {run.status}
-                              </Badge>
-                            </TableCell>
-                            <TableCell>{new Date(run.started_at).toLocaleString()}</TableCell>
-                            <TableCell>{run.ended_at ? computeDuration(run.started_at, run.ended_at) : 'Running'}</TableCell>
-                            <TableCell><Badge variant="default">{run.entries_synced}</Badge></TableCell>
-                            <TableCell><Badge variant="secondary">{run.entries_already_synced ?? 0}</Badge></TableCell>
-                            <TableCell><Badge variant="secondary">{run.entries_skipped ?? 0}</Badge></TableCell>
-                            <TableCell><Badge variant="destructive">{run.entries_failed ?? 0}</Badge></TableCell>
-                            <TableCell><Badge variant="destructive">{run.conflicts_detected}</Badge></TableCell>
-                            <TableCell>
-                              <div className="flex gap-2">
-                                <Dialog>
-                                  <DialogTrigger asChild>
-                                    <Button variant="outline" size="sm">
-                                      View Logs
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Logs for Run #{run.id}</DialogTitle>
-                                    </DialogHeader>
-                                    <AuditLogs runId={run.id} />
-                                  </DialogContent>
-                                </Dialog>
-                                {run.status === 'failed' && (
-                                  <Button variant="outline" size="sm" onClick={() => runSyncMutation.mutate()}>
-                                    Retry
-                                  </Button>
-                                )}
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                  {syncRuns.length === 0 && (
-                    <div className="text-center text-muted-foreground py-8">
-                      <p>No sync runs match the filter. Trigger a sync to start tracking executions.</p>
-                      <Button onClick={() => runSyncMutation.mutate()} className="mt-4">
-                        <Play className="h-4 w-4 mr-2" />
-                        Run Sync Now
-                      </Button>
+                <Tabs value={auditTab} onValueChange={(v) => setAuditTab(v as "sync-history" | "audit-logs")} className="w-full">
+                  <TabsList>
+                    <TabsTrigger value="sync-history">Sync History</TabsTrigger>
+                    <TabsTrigger value="audit-logs">Audit Logs</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="sync-history" className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Select value={statusFilter} onValueChange={setStatusFilter}>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Filter status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="completed">Completed</SelectItem>
+                          <SelectItem value="failed">Failed</SelectItem>
+                          <SelectItem value="running">Running</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input placeholder="Search ID or error" value={search} onChange={(e) => setSearch(e.target.value)} className="max-w-sm" />
+                      <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="w-40" />
+                      <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="w-40" />
                     </div>
-                  )}
-                </div>
+                    <Button variant="outline" onClick={async () => {
+                      try {
+                        const blob = await syncService.exportSyncRuns('csv', statusFilter, startDate, endDate);
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'sync-history.csv';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast({ title: "Export started", description: "Download will begin shortly" });
+                      } catch (error) {
+                        toast({ title: "Export failed", description: "Failed to generate export", variant: "destructive" });
+                      }
+                    }}>
+                      Export CSV
+                    </Button>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>ID</TableHead>
+                            <TableHead>Status</TableHead>
+                            <TableHead>Started</TableHead>
+                            <TableHead>Duration</TableHead>
+                            <TableHead>Synced</TableHead>
+                            <TableHead>Already Synced</TableHead>
+                            <TableHead>Skipped</TableHead>
+                            <TableHead>Failed</TableHead>
+                            <TableHead>Conflicts</TableHead>
+                            <TableHead>Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {syncRuns.map((run: SyncRun) => (
+                            <TableRow key={run.id}>
+                              <TableCell>#{run.id}</TableCell>
+                              <TableCell>
+                                <Badge variant={run.status === 'completed' ? "default" : run.status === 'running' ? "secondary" : "destructive"}>
+                                  {run.status}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>{new Date(run.started_at).toLocaleString()}</TableCell>
+                              <TableCell>{run.ended_at ? computeDuration(run.started_at, run.ended_at) : 'Running'}</TableCell>
+                              <TableCell><Badge variant="default">{run.entries_synced}</Badge></TableCell>
+                              <TableCell><Badge variant="secondary">{run.entries_already_synced ?? 0}</Badge></TableCell>
+                              <TableCell><Badge variant="secondary">{run.entries_skipped ?? 0}</Badge></TableCell>
+                              <TableCell><Badge variant="destructive">{run.entries_failed ?? 0}</Badge></TableCell>
+                              <TableCell><Badge variant="destructive">{run.conflicts_detected}</Badge></TableCell>
+                              <TableCell>
+                                <div className="flex gap-2">
+                                  <Dialog>
+                                    <DialogTrigger asChild>
+                                      <Button variant="outline" size="sm">
+                                        View Logs
+                                      </Button>
+                                    </DialogTrigger>
+                                    <DialogContent>
+                                      <DialogHeader>
+                                        <DialogTitle>Logs for Run #{run.id}</DialogTitle>
+                                      </DialogHeader>
+                                      <AuditLogs runId={run.id} />
+                                    </DialogContent>
+                                  </Dialog>
+                                  {run.status === 'failed' && (
+                                    <Button variant="outline" size="sm" onClick={() => runSyncMutation.mutate()}>
+                                      Retry
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {syncRuns.length === 0 && (
+                      <div className="text-center text-muted-foreground py-8">
+                        <p>No sync runs match the filter. Trigger a sync to start tracking executions.</p>
+                        <Button onClick={() => runSyncMutation.mutate()} className="mt-4">
+                          <Play className="h-4 w-4 mr-2" />
+                          Run Sync Now
+                        </Button>
+                      </div>
+                    )}
+                  </TabsContent>
+                  <TabsContent value="audit-logs" className="space-y-4">
+                    <div className="flex items-center gap-2">
+                      <Select value={auditActionType} onValueChange={(v) => setAuditActionType(v as "all" | "access" | "sync")}>
+                        <SelectTrigger className="w-[180px]">
+                          <SelectValue placeholder="Filter action type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All</SelectItem>
+                          <SelectItem value="access">Access</SelectItem>
+                          <SelectItem value="sync">Sync</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <Input placeholder="Search user or action" value={auditSearch} onChange={(e) => setAuditSearch(e.target.value)} className="max-w-sm" />
+                      <Input type="date" value={auditStartDate} onChange={(e) => setAuditStartDate(e.target.value)} className="w-40" />
+                      <Input type="date" value={auditEndDate} onChange={(e) => setAuditEndDate(e.target.value)} className="w-40" />
+                      <Input placeholder="IP Address" value={ipFilter} onChange={(e) => setIpFilter(e.target.value)} className="w-32" />
+                    </div>
+                    <Button variant="outline" onClick={async () => {
+                      try {
+                        const blob = await auditService.export('csv');
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = 'audit-logs.csv';
+                        a.click();
+                        URL.revokeObjectURL(url);
+                        toast({ title: "Export started", description: "Download will begin shortly" });
+                      } catch (error) {
+                        toast({ title: "Export failed", description: "Failed to generate export", variant: "destructive" });
+                      }
+                    }}>
+                      Export CSV
+                    </Button>
+                    <div className="rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Action</TableHead>
+                            <TableHead>Entity</TableHead>
+                            <TableHead>User</TableHead>
+                            <TableHead>IP Address</TableHead>
+                            <TableHead>Timestamp</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {auditLogs.map((log) => (
+                            <TableRow key={log.id}>
+                              <TableCell className="font-medium">
+                                <Badge variant={log.action.startsWith('sync') ? "default" : "secondary"}>
+                                  {log.action}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                {log.entity_type && log.entity_id ? (
+                                  <span className="text-sm">{log.entity_type} #{log.entity_id}</span>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">N/A</span>
+                                )}
+                              </TableCell>
+                              <TableCell>{(log as any).user || "System"}</TableCell>
+                              <TableCell>
+                                {log.ip_address ? (
+                                  <TooltipProvider>
+                                    <Tooltip>
+                                      <TooltipTrigger asChild>
+                                        <span className="text-sm">{log.ip_address}</span>
+                                      </TooltipTrigger>
+                                      <TooltipContent>
+                                        <p>User Agent: {log.user_agent || "N/A"}</p>
+                                      </TooltipContent>
+                                    </Tooltip>
+                                  </TooltipProvider>
+                                ) : (
+                                  <span className="text-sm text-muted-foreground">N/A</span>
+                                )}
+                              </TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {new Date(log.created_at).toLocaleString()}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    {auditLogs.length === 0 && (
+                      <div className="text-center text-muted-foreground py-8">
+                        <p>No audit logs match the filter. Perform actions (e.g., sync, configure connectors) to generate logs.</p>
+                      </div>
+                    )}
+                  </TabsContent>
+                </Tabs>
               </CardContent>
             </Card>
           </section>

@@ -1,5 +1,5 @@
 from typing import List, Dict, Any, Annotated, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from pydantic import BaseModel, HttpUrl
 from sqlalchemy.orm import Session
 
@@ -12,6 +12,7 @@ from app.schemas.connector import ConnectorCreate, ConnectorUpdate, ConnectorInD
 from app.schemas.auth import User 
 from app.auth import get_current_active_user
 from app.utils.encrypt import encrypt_data, decrypt_data
+from app.utils.audit_logger import create_audit_log
 
 class TestConnectorRequest(BaseModel):
     id: Optional[int] = None
@@ -62,6 +63,7 @@ async def get_connector_instance(db_conn: DBConnector) -> BaseConnector:
 
 @router.post("/", response_model=ConnectorInDB, status_code=status.HTTP_201_CREATED)
 async def create_connector(
+    request: Request,
     connector: ConnectorCreate,
     db: Session = Depends(get_db),
     current_user: Annotated[User, Depends(get_current_active_user)] = None
@@ -87,6 +89,18 @@ async def create_connector(
     db.add(db_connector)
     db.commit()
     db.refresh(db_connector)
+    
+    # Log connector creation
+    create_audit_log(
+        db=db,
+        request=request,
+        action="connector_created",
+        entity_type="connector",
+        entity_id=db_connector.id,
+        user=current_user.username if current_user else None,
+        details={"connector_type": connector.type, "name": connector.name}
+    )
+    
     # Mask API token for response
     db_connector.api_token = "********"
     return db_connector
@@ -121,6 +135,7 @@ async def read_connector(
 
 @router.patch("/{connector_id}", response_model=ConnectorInDB)
 async def update_connector(
+    request: Request,
     connector_id: int,
     connector: ConnectorUpdate,
     db: Session = Depends(get_db),
@@ -143,11 +158,24 @@ async def update_connector(
     db.add(db_connector)
     db.commit()
     db.refresh(db_connector)
+    
+    # Log connector update
+    create_audit_log(
+        db=db,
+        request=request,
+        action="connector_updated",
+        entity_type="connector",
+        entity_id=db_connector.id,
+        user=current_user.username if current_user else None,
+        details={"name": db_connector.name, "updated_fields": list(connector.model_dump(exclude_unset=True).keys())}
+    )
+    
     db_connector.api_token = "********" # Mask API token for response
     return db_connector
 
 @router.delete("/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_connector(
+    request: Request,
     connector_id: int,
     db: Session = Depends(get_db),
     current_user: Annotated[User, Depends(get_current_active_user)] = None
@@ -156,6 +184,17 @@ async def delete_connector(
     db_connector = db.query(DBConnector).filter(DBConnector.id == connector_id).first()
     if db_connector is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connector not found")
+    
+    # Log connector deletion before removing
+    create_audit_log(
+        db=db,
+        request=request,
+        action="connector_deleted",
+        entity_type="connector",
+        entity_id=db_connector.id,
+        user=current_user.username if current_user else None,
+        details={"name": db_connector.name, "type": db_connector.type}
+    )
     
     db.delete(db_connector)
     db.commit()

@@ -2,7 +2,7 @@ from typing import Annotated, Optional
 from datetime import date, timedelta, datetime
 from zoneinfo import ZoneInfo
 import logging
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -18,6 +18,7 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import decrypt_data
 from app.models.conflict import Conflict
+from app.utils.audit_logger import create_audit_log
 from sqlalchemy import func, or_
 from datetime import timedelta
 from zoneinfo import ZoneInfo
@@ -30,6 +31,7 @@ router = APIRouter()
 
 @router.post("/run", response_model=SyncResponse)
 async def run_sync(
+    http_request: Request,
     request: SyncRequest = Depends(),
     db: Session = Depends(get_db),
     current_user: Annotated[User, Depends(get_current_active_user)] = None
@@ -38,6 +40,15 @@ async def run_sync(
     # Resolve dates
     end_d = date.today().isoformat() if not request.end_date else request.end_date
     start_d = (date.today() - timedelta(days=30)).isoformat() if not request.start_date else request.start_date
+    
+    # Log sync trigger
+    create_audit_log(
+        db=db,
+        request=http_request,
+        action="sync_triggered",
+        user=current_user.username if current_user else None,
+        details={"start_date": start_d, "end_date": end_d, "trigger_type": "manual"}
+    )
     
     # Fetch active connectors once
     zammad_conn = db.query(DBConnector).filter(DBConnector.type == "zammad", DBConnector.is_active == True).first()

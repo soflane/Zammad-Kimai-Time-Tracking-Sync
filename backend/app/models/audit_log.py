@@ -22,12 +22,17 @@ class AuditLog(Base):
     user = Column(String(100), nullable=True)  # Username who performed action
     details = Column(JSONB, nullable=True)  # Additional context and data
     
+    # IP tracking (for web UI access audit)
+    ip_address = Column(String(45), nullable=True)  # Client IP (supports IPv6)
+    user_agent = Column(String, nullable=True)  # Browser/client user agent
+    
     # Timestamp
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
 
     __table_args__ = (
         Index('idx_audit_logs_created_at_desc', created_at.desc()),
         Index('idx_audit_logs_action', 'action'),
+        Index('idx_audit_logs_ip_created', 'ip_address', 'created_at'),
     )
 
     def __repr__(self):

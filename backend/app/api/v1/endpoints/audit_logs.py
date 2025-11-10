@@ -10,7 +10,6 @@ from app.schemas.auth import User
 from app.auth import get_current_active_user
 
 router = APIRouter(
-    prefix="/audit-logs",
     tags=["audit-logs"]
 )
 
@@ -18,21 +17,48 @@ router = APIRouter(
 async def read_audit_logs(
     skip: int = 0,
     limit: int = 100,
-    action: Optional[str] = Query(None, description="Filter by action"),
+    action: Optional[str] = Query(None, description="Filter by specific action"),
+    action_type: Optional[str] = Query(None, description="Filter by action type: 'access', 'sync', or 'all'"),
+    ip_address: Optional[str] = Query(None, description="Filter by IP address"),
     start_date: Optional[str] = Query(None, description="Filter created_at >= YYYY-MM-DD"),
-    run_id: Optional[int] = Query(None, description="Filter by sync_run_id"),
+    end_date: Optional[str] = Query(None, description="Filter created_at <= YYYY-MM-DD"),
+    user: Optional[str] = Query(None, description="Filter by username"),
     current_user: Annotated[User, Depends(get_current_active_user)] = None,
     db: Session = Depends(get_db)
 ):
     """Retrieve audit logs with optional filters."""
-    query = db.query(AuditLog)
+    query = db.query(AuditLog).order_by(AuditLog.created_at.desc())
+    
+    # Filter by specific action
     if action:
         query = query.filter(AuditLog.action == action)
+    
+    # Filter by action type (access vs sync)
+    if action_type:
+        if action_type == 'access':
+            # Access logs: everything NOT starting with 'sync'
+            query = query.filter(~AuditLog.action.like('sync%'))
+        elif action_type == 'sync':
+            # Sync logs: actions starting with 'sync'
+            query = query.filter(AuditLog.action.like('sync%'))
+        # 'all' or invalid values: no filter
+    
+    # Filter by IP address
+    if ip_address:
+        query = query.filter(AuditLog.ip_address == ip_address)
+    
+    # Filter by date range
     if start_date:
         from datetime import datetime
         query = query.filter(AuditLog.created_at >= datetime.fromisoformat(f"{start_date}T00:00:00"))
-    if run_id:
-        query = query.filter(AuditLog.sync_run_id == run_id)
+    if end_date:
+        from datetime import datetime
+        query = query.filter(AuditLog.created_at <= datetime.fromisoformat(f"{end_date}T23:59:59"))
+    
+    # Filter by username
+    if user:
+        query = query.filter(AuditLog.user == user)
+    
     logs = query.offset(skip).limit(limit).all()
     return logs
 

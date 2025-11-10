@@ -182,13 +182,17 @@ export const syncService = {
 
 // Audit Logs
 export const auditService = {
-  getAuditLogs: async (limit = 10, runId?: number, params?: {
+  getAuditLogs: async (params?: {
     skip?: number
+    limit?: number
     action?: string
+    action_type?: 'access' | 'sync' | 'all'
+    ip_address?: string
     start_date?: string
+    end_date?: string
+    user?: string
   }): Promise<AuditLog[]> => {
-    const allParams = { ...params, limit, run_id: runId }
-    const response = await api.get('/audit-logs', { params: allParams })
+    const response = await api.get('/audit-logs/', { params })
     return response.data
   },
 
