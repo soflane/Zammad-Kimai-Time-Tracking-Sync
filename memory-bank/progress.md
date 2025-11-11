@@ -50,6 +50,10 @@
 - ✅ Audit log filtering by IP and action type
 - ✅ 90-day retention policy for access logs
 - ✅ Stable audit section: No 401/307/405 errors or login loops
+- ✅ Dynamic scheduling with UI configuration (presets, cron, timezone, concurrency)
+- ✅ Concurrency control (skip/queue modes)
+- ✅ Next-run preview with timezone localization
+- ✅ Schedule updates without service restart
 
 ## What's Left to Build
 - [ ] Multi-user authentication (V2)
@@ -78,8 +82,54 @@
 - **Deployment**: Docker Compose (V1); Kubernetes Helm chart planned for V2
 - **Audit Logging**: Initially basic; enhanced with IP tracking for security/compliance (November 2025)
 - **Audit Fixes**: Addressed dev-specific issues (auth races, CORS) for stable multi-setup access
+- **Scheduling Enhancement**: Added dynamic rescheduling, concurrency modes, and UI presets (November 2025)
 
 ## Recent Changes Summary (November 2025)
+- **Implemented Scheduling Feature for Automatic Sync Runs**:
+  - **Goal**: Add comprehensive scheduling for periodic syncs with UI configuration, dynamic rescheduling, concurrency control, and notifications.
+  - **Backend Implementation**:
+    - Created database migration (`backend/alembic/versions/20251111_1742_138c27fb806b_add_schedules_table.py`) for `schedules` table (single row: id, cron, timezone, concurrency, notifications, enabled, timestamps).
+    - Created `Schedule` model (`backend/app/models/schedule.py`) with SQLAlchemy fields and relationships.
+    - Created schedule schemas (`backend/app/schemas/schedule.py`) with Pydantic validation: `ScheduleBase` (cron validation via croniter, timezone via ZoneInfo), `ScheduleResponse` (with computed `next_runs`), `ScheduleUpdate` (optional fields).
+    - Created schedule endpoints (`backend/app/api/v1/endpoints/schedule.py`):
+      - `GET /api/v1/schedule`: Fetches or creates default schedule; computes next 3 runs using croniter (respects timezone).
+      - `PUT /api/v1/schedule`: Updates schedule, tracks changes for audit, calls `reschedule_sync_job()` for dynamic updates without restart.
+    - Created scheduler service (`backend/app/scheduler.py`): APScheduler integration with AsyncIOScheduler; `scheduled_sync_job()` executes sync with concurrency handling (skip/queue, queue limit 5); `reschedule_sync_job()` for dynamic cron changes; `start_scheduler()` loads from DB on startup; `shutdown_scheduler()` for graceful shutdown.
+    - Integrated scheduler in `backend/app/main.py`: `@app.on_event("startup")` calls `start_scheduler()`; `@app.on_event("shutdown")` calls `shutdown_scheduler()`.
+    - Added `croniter>=2.0.0` to `backend/requirements.txt` for cron parsing/validation.
+    - Audit integration: `schedule_updated` event with changes dict (old/new values).
+    - Notification framework: Logs when conflicts >10 or failures occur (extendable to email/webhook).
+  - **Frontend Implementation**:
+    - Added `Schedule` and `ScheduleUpdate` types to `frontend/src/types/index.ts`.
+    - Added `scheduleService` to `frontend/src/services/api.service.ts`: `get()` and `update()` methods.
+    - Created `ScheduleDialog` component (`frontend/src/components/ScheduleDialog.tsx`):
+      - Presets: Hourly, Every 6h, Daily, Weekly, Monthly, Custom (auto-generates cron).
+      - Time picker for daily/weekly/monthly; weekday chips for weekly (Mon-Sun, at least one required).
+      - Timezone selector (UTC, Europe/Brussels, etc.).
+      - Concurrency policy (skip/queue with descriptions).
+      - Notifications toggle (alerts on failures/high conflicts).
+      - Enable/disable toggle.
+      - Client validation: Non-empty cron, required time/days for presets, toast errors.
+      - Next 3 runs preview: Localized timestamps using Intl.DateTimeFormat with selected timezone.
+      - TanStack Query integration: Fetches on open, invalidates on save.
+    - Wired into `frontend/src/pages/SyncDashboard.tsx`: Replaced top bar placeholder with `<ScheduleDialog />`; imported component.
+  - **Key Features**:
+    - Dynamic rescheduling without restart (API-driven).
+    - Concurrency enforcement: Skip prevents overlaps; queue limits to 5.
+    - Preset editing updates cron; manual cron overrides presets.
+    - Weekly DOW chips generate correct cron (e.g., "0 9 * * 1,3,5" for Mon/Wed/Fri).
+    - Next runs computed server-side, displayed client-side with timezone formatting.
+    - Audit logs all changes (`schedule_updated` with diff).
+    - Toasts for success/error; disable save during pending.
+  - **Impact**:
+    - Full scheduling capability: Automatic periodic syncs with UI control.
+    - No service restart needed for changes; immediate effect.
+    - Compliance: All updates audited; notifications for issues.
+    - UX: Intuitive presets with validation; real-time preview.
+  - **Testing**: Migration applied; dependencies installed; backend scheduler starts; frontend dialog fetches/saves; cron validation works; next runs localize correctly.
+  - **Files Modified**: Multiple (migrations, models, schemas, endpoints, scheduler, main.py, requirements.txt, frontend types/service/components/dashboard).
+  - **Compliance**: Backward compatible; extends existing APScheduler; production ready.
+
 - **Fixed Audit Section Issues**:
   - **Goal**: Resolve 401 Unauthorized, 307 Redirects, login loops, and 405 Method Not Allowed errors after adding audit section.
   - **Root Causes**:

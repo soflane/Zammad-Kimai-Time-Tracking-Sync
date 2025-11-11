@@ -18,10 +18,16 @@
   - Version-controlled schema changes
   - Automatic migration generation
 
-- **APScheduler**: Task scheduling
-  - Cron-like scheduling
+- **APScheduler** (3.10.4): Task scheduling
+  - Cron-like scheduling with AsyncIOScheduler
+  - Dynamic job rescheduling via API
+  - Concurrency handling (skip/queue modes)
   - In-process scheduler (V1)
   - Can be replaced with Celery later for distributed tasks
+
+- **croniter** (2.0+): Cron expression parsing and validation
+  - Used for schedule validation and next-run computation
+  - Timezone-aware cron iteration
 
 - **Pydantic** (2.0+): Data validation and serialization
   - Type hints for validation
@@ -57,6 +63,12 @@
   - **lucide-react** icons
   - **recharts** for the KPI area chart
   - **framer-motion** for light transitions
+  - **ScheduleDialog**: Scheduling configuration dialog with presets, validation, and preview
+
+Single-page UI architecture:
+- Route `/` renders `Layout` + `SyncDashboard` with anchored sections (`#dashboard`, `#connectors`, `#mappings`, `#reconcile`, `#audit`).
+- Left sidebar provides anchor navigation; top bar exposes "Schedule" and "Run sync now".
+- All CRUD operations (connectors, mappings, reconcile actions) occur via dialogs and inline buttons—no route changes.
 
 Single-page UI architecture:
 - Route `/` renders `Layout` + `SyncDashboard` with anchored sections (`#dashboard`, `#connectors`, `#mappings`, `#reconcile`, `#audit`).

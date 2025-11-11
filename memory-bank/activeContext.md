@@ -41,7 +41,52 @@ IP tracking for audit logs is now complete. The system logs IP addresses and use
 Recent debugging and fixes for audit section issues (401 auth failures, 307 redirects, login loops, 405 CORS errors) have been implemented, ensuring stable access across different computer setups.
 
 ## Recent Actions (Most Recent First)
-1. **Fixed Audit Section Issues (November 2025)**:
+1. **Implemented Scheduling Feature for Automatic Sync Runs (November 2025)**:
+   - **Goal**: Add comprehensive scheduling for periodic syncs with UI configuration, dynamic rescheduling, concurrency control, and notifications.
+   - **Backend Implementation**:
+     - Created database migration (`backend/alembic/versions/20251111_1742_138c27fb806b_add_schedules_table.py`) for `schedules` table (single row: id, cron, timezone, concurrency, notifications, enabled, timestamps).
+     - Created `Schedule` model (`backend/app/models/schedule.py`) with SQLAlchemy fields and relationships.
+     - Created schedule schemas (`backend/app/schemas/schedule.py`) with Pydantic validation: `ScheduleBase` (cron validation via croniter, timezone via ZoneInfo), `ScheduleResponse` (with computed `next_runs`), `ScheduleUpdate` (optional fields).
+     - Created schedule endpoints (`backend/app/api/v1/endpoints/schedule.py`):
+       - `GET /api/v1/schedule`: Fetches or creates default schedule; computes next 3 runs using croniter (respects timezone).
+       - `PUT /api/v1/schedule`: Updates schedule, tracks changes for audit, calls `reschedule_sync_job()` for dynamic updates without restart.
+     - Created scheduler service (`backend/app/scheduler.py`): APScheduler integration with AsyncIOScheduler; `scheduled_sync_job()` executes sync with concurrency handling (skip/queue, queue limit 5); `reschedule_sync_job()` for dynamic cron changes; `start_scheduler()` loads from DB on startup; `shutdown_scheduler()` for graceful shutdown.
+     - Integrated scheduler in `backend/app/main.py`: `@app.on_event("startup")` calls `start_scheduler()`; `@app.on_event("shutdown")` calls `shutdown_scheduler()`.
+     - Added `croniter>=2.0.0` to `backend/requirements.txt` for cron parsing/validation.
+     - Audit integration: `schedule_updated` event with changes dict (old/new values).
+     - Notification framework: Logs when conflicts >10 or failures occur (extendable to email/webhook).
+   - **Frontend Implementation**:
+     - Added `Schedule` and `ScheduleUpdate` types to `frontend/src/types/index.ts`.
+     - Added `scheduleService` to `frontend/src/services/api.service.ts`: `get()` and `update()` methods.
+     - Created `ScheduleDialog` component (`frontend/src/components/ScheduleDialog.tsx`):
+       - Presets: Hourly, Every 6h, Daily, Weekly, Monthly, Custom (auto-generates cron).
+       - Time picker for daily/weekly/monthly; weekday chips for weekly (Mon-Sun, at least one required).
+       - Timezone selector (UTC, Europe/Brussels, etc.).
+       - Concurrency policy (skip/queue with descriptions).
+       - Notifications toggle (alerts on failures/high conflicts).
+       - Enable/disable toggle.
+       - Client validation: Non-empty cron, required time/days for presets, toast errors.
+       - Next 3 runs preview: Localized timestamps using Intl.DateTimeFormat with selected timezone.
+       - TanStack Query integration: Fetches on open, invalidates on save.
+     - Wired into `frontend/src/pages/SyncDashboard.tsx`: Replaced top bar placeholder with `<ScheduleDialog />`; imported component.
+   - **Key Features**:
+     - Dynamic rescheduling without restart (API-driven).
+     - Concurrency enforcement: Skip prevents overlaps; queue limits to 5.
+     - Preset editing updates cron; manual cron overrides presets.
+     - Weekly DOW chips generate correct cron (e.g., "0 9 * * 1,3,5" for Mon/Wed/Fri).
+     - Next runs computed server-side, displayed client-side with timezone formatting.
+     - Audit logs all changes (`schedule_updated` with diff).
+     - Toasts for success/error; disable save during pending.
+   - **Impact**:
+     - Full scheduling capability: Automatic periodic syncs with UI control.
+     - No service restart needed for changes; immediate effect.
+     - Compliance: All updates audited; notifications for issues.
+     - UX: Intuitive presets with validation; real-time preview.
+   - **Testing**: Migration applied; dependencies installed; backend scheduler starts; frontend dialog fetches/saves; cron validation works; next runs localize correctly.
+   - **Files Modified**: Multiple (migrations, models, schemas, endpoints, scheduler, main.py, requirements.txt, frontend types/service/components/dashboard).
+   - **Compliance**: Backward compatible; extends existing APScheduler; production ready.
+
+2. **Fixed Audit Section Issues (November 2025)**:
    - **Goal**: Resolve 401 Unauthorized, 307 Redirects, login loops, and 405 Method Not Allowed errors after adding audit section.
    - **Root Causes**:
      - Trailing slash mismatch between frontend API call (/audit-logs) and backend route (/audit-logs/), causing 307 redirects.
@@ -62,7 +107,7 @@ Recent debugging and fixes for audit section issues (401 auth failures, 307 redi
    - **Files Modified**: api.service.ts, SyncDashboard.tsx, api.ts, config.py.
    - **Compliance**: Enhances dev experience; no security changes.
 
-2. **Implemented IP Tracking for Audit Logs (November 2025)**:
+3. **Implemented IP Tracking for Audit Logs (November 2025)**:
    - **Goal**: Track IP addresses and user agents for all critical operations to enhance security and compliance.
    - **Backend Implementation**:
      - Created database migration (`backend/alembic/versions/20251110_0303_c1aef9eb831e_add_ip_tracking_to_audit_logs.py`) adding `ip_address` (VARCHAR(45)) and `user_agent` (TEXT) columns to `audit_logs` table with composite index.
@@ -91,7 +136,7 @@ Recent debugging and fixes for audit section issues (401 auth failures, 307 redi
    - **Files Modified**: Multiple (migrations, models, schemas, utils, endpoints, services, frontend types/service/dashboard).
    - **Compliance**: Maintains existing API contracts; backward compatible; production ready.
 
-3. **Fixed Reconcile Screen Data Extraction (November 2025)**:
+4. **Fixed Reconcile Screen Data Extraction (November 2025)**:
    - **Problem**: Reconcile screen showed "Unknown" for activity types and users despite rich data in database
    - **Root Cause**: Sync service created conflicts without populating `zammad_data` and `kimai_data` JSONB fields; extraction logic was correct but no data to extract
    - **Backend Fixes** (`backend/app/services/sync_service.py`):
@@ -107,7 +152,7 @@ Recent debugging and fixes for audit section issues (401 auth failures, 307 redi
    - **Testing**: Run new sync to create conflicts; verify Reconcile screen shows actual user names, activity types, and descriptions
    - **Compliance**: Backward compatible; no schema changes; existing conflicts remain functional
 
-4. **Reconcile Screen Refactor with New Business Rules (January 2025)**:
+5. **Reconcile Screen Refactor with New Business Rules (January 2025)**:
    - **Goal**: Adapt Reconcile screen to new business model where matched rows auto-sync, and manual reconciliation is only for conflicts and missing entries.
    - **Business Rules Implemented**:
      - Matched rows are auto-synced during runs (no user confirmation needed)
@@ -149,7 +194,7 @@ Recent debugging and fixes for audit section issues (401 auth failures, 307 redi
    - **Testing**: Ready for end-to-end testing with live Zammad/Kimai instances
    - **Compliance**: New `/api/v1/reconcile` endpoint; maintains backward compatibility with existing conflict endpoints
 
-5. **Sync Error Handling Refactor**:
+6. **Sync Error Handling Refactor**:
    - Fixed silent failures in Zammad connector (now raises connection/auth errors)
    - Optimized logging: Reduced DEBUG noise, added error classification (connection, auth, permissions, timeouts)
    - Enhanced SyncResponse with `error_detail` field for UI feedback
@@ -157,12 +202,12 @@ Recent debugging and fixes for audit section issues (401 auth failures, 307 redi
    - Frontend integration: Toast notifications show specific error messages (e.g., "Connection error: Invalid URL")
    - Result: Clear UI feedback for invalid URLs/tokens; cleaner backend logs
 
-6. **UI Polish**:
+7. **UI Polish**:
    - Fixed TypeScript errors in SyncDashboard mutation handling
    - Updated api.service.ts to return SyncResponse type
    - Improved toast messages with dynamic content (success: entry count; failure: error details)
 
-7. **Frontend Cleanup (November 2025)**:
+8. **Frontend Cleanup (November 2025)**:
    - Removed legacy multi-page UI files: Dashboard.tsx, Connectors.tsx, Mappings.tsx, Conflicts.tsx, AuditLogs.tsx, Layout.tsx
    - Cleaned up commented legacy imports and routes in App.tsx
    - Verified no active references; SyncDashboard fully replaces multi-page structure
@@ -180,3 +225,4 @@ Recent debugging and fixes for audit section issues (401 auth failures, 307 redi
 - **IP Tracking Retention**: 90 days for access logs, permanent for sync logs (configurable via cleanup service)
 - **Proxy Support**: Traefik-focused but extensible to Nginx/CloudFlare via header precedence
 - **Frontend Enhancement**: IP tracking backend complete; UI display optional (can be added as column in existing Audit section)
+- **Scheduling**: APScheduler for V1 (in-process); dynamic rescheduling via API; concurrency modes (skip/queue); notifications on high conflicts/failures
