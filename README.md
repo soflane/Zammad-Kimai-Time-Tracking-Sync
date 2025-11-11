@@ -99,8 +99,8 @@ External: Zammad ──webhook──> System ──sync──> Kimai
 
 1. **Clone the repository**
    ```bash
-   git clone <repository-url>
-   cd Zammad-TimeTracking-Sync
+   git clone https://github.com/soflane/Zammad-Kimai-Time-Tracking-Sync
+   cd Zammad-Kimai-Time-Tracking-Sync
    ```
 
 2. **Backend Setup**
@@ -322,7 +322,7 @@ SYNC_SCHEDULE_HOURS=6
 
 ## Contributing
 
-Contributions are welcome! Please read our contributing guidelines before submitting PRs.
+The project is still under active development, and help is very welcome! Contributions, bug reports, feature suggestions, and pull requests are encouraged. Please read our contributing guidelines (to be added in a future update) before submitting PRs. For now, feel free to open an issue to discuss ideas or report problems.
 
 ## Production Features
 
@@ -353,7 +353,7 @@ MIT License - see [LICENSE](LICENSE) file for details
 ## Support
 
 For issues and questions:
-- Create an issue in the repository
+- Create an issue on GitHub: https://github.com/soflane/Zammad-Kimai-Time-Tracking-Sync/issues
 - Check the documentation in `memory-bank/`
 
 ## Acknowledgments
