@@ -1676,6 +1676,7 @@ export default function SyncDashboard() {
                         <TableHeader>
                           <TableRow>
                             <TableHead>ID</TableHead>
+                            <TableHead>Trigger</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead>Started</TableHead>
                             <TableHead>Duration</TableHead>
@@ -1691,6 +1692,11 @@ export default function SyncDashboard() {
                           {syncRuns.map((run: SyncRun) => (
                             <TableRow key={run.id}>
                               <TableCell>#{run.id}</TableCell>
+                              <TableCell>
+                                <Badge variant={run.trigger_type === 'manual' ? "default" : "secondary"}>
+                                  {run.trigger_type ? run.trigger_type.charAt(0).toUpperCase() + run.trigger_type.slice(1) : 'Unknown'}
+                                </Badge>
+                              </TableCell>
                               <TableCell>
                                 <Badge variant={run.status === 'completed' ? "default" : run.status === 'running' ? "secondary" : "destructive"}>
                                   {run.status}
