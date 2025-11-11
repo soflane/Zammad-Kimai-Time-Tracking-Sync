@@ -25,14 +25,44 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+            if (clientIp.startsWith('::ffff:')) {
+              clientIp = clientIp.replace('::ffff:', '');
+            }
+            proxyReq.setHeader('X-Forwarded-For', clientIp);
+            proxyReq.setHeader('X-Real-IP', clientIp);
+          });
+        },
       },
       '/token': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+            if (clientIp.startsWith('::ffff:')) {
+              clientIp = clientIp.replace('::ffff:', '');
+            }
+            proxyReq.setHeader('X-Forwarded-For', clientIp);
+            proxyReq.setHeader('X-Real-IP', clientIp);
+          });
+        },
       },
       '/users': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        configure: (proxy, options) => {
+          proxy.on('proxyReq', (proxyReq, req, res) => {
+            let clientIp = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+            if (clientIp.startsWith('::ffff:')) {
+              clientIp = clientIp.replace('::ffff:', '');
+            }
+            proxyReq.setHeader('X-Forwarded-For', clientIp);
+            proxyReq.setHeader('X-Real-IP', clientIp);
+          });
+        },
       },
     },
   },
