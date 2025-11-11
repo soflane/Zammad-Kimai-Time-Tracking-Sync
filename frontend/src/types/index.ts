@@ -256,3 +256,24 @@ export interface ReconcileResponse {
 export interface RowActionRequest {
   op: RowOp;
 }
+
+// Schedule types
+export interface Schedule {
+  id: number
+  cron: string
+  timezone: string
+  concurrency: 'skip' | 'queue'
+  notifications: boolean
+  enabled: boolean
+  next_runs: string[]
+  updated_at: string
+  created_at: string
+}
+
+export interface ScheduleUpdate {
+  cron?: string
+  timezone?: string
+  concurrency?: 'skip' | 'queue'
+  notifications?: boolean
+  enabled?: boolean
+}

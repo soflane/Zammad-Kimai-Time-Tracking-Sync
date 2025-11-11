@@ -23,6 +23,7 @@ tenacity==8.3.0
 
 # Task Scheduling
 apscheduler==3.10.4
+croniter>=2.0.0
 
 # Testing
 pytest==7.4.4

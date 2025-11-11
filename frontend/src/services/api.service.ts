@@ -218,3 +218,16 @@ export const reconcileService = {
     return response.data
   }
 }
+
+// Schedule
+export const scheduleService = {
+  get: async () => {
+    const response = await api.get('/schedule/')
+    return response.data
+  },
+
+  update: async (update: any) => {
+    const response = await api.put('/schedule/', update)
+    return response.data
+  }
+}

@@ -76,6 +76,9 @@ app = FastAPI(
     version=__version__
 )
 
+# Import scheduler
+from app import scheduler as sched_module
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -163,6 +166,17 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=500,
         content={"detail": "Internal server error"}
     )
+
+# Lifecycle events for scheduler
+@app.on_event("startup")
+async def startup_event():
+    """Start the scheduler on application startup."""
+    sched_module.start_scheduler()
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Shutdown the scheduler on application shutdown."""
+    sched_module.shutdown_scheduler()
 
 # Scheduler setup (runs only when main.py executed directly, not in production uvicorn)
 if __name__ == "__main__":

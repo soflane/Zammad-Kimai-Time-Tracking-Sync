@@ -47,6 +47,7 @@ import { useAuth } from "@/context/AuthContext";
 import { connectorService, mappingService, syncService, conflictService, auditService, reconcileService } from "@/services/api.service";
 import type { ValidationResponse } from "@/types";
 import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse, Activity as ActivityType, DiffItem, ReconcileResponse, RowOp } from "@/types";
+import { ScheduleDialog } from "@/components/ScheduleDialog";
 
 // Utility UI components
 const Pill = ({ ok }: { ok: boolean }) => (
@@ -1355,9 +1356,7 @@ export default function SyncDashboard() {
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2">
-              <CalendarClock className="h-4 w-4" /> Schedule
-            </Button>
+            <ScheduleDialog />
             <Button size="sm" className="gap-2" onClick={() => runSyncMutation.mutate()}>
               <Play className="h-4 w-4" /> Run sync now
             </Button>
