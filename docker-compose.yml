@@ -44,7 +44,7 @@ services:
       # KIMAI_API_TOKEN: your_token
       # KIMAI_DEFAULT_PROJECT_ID: 1
     volumes:
-      - ./backend:/app  # For hot-reload during dev
+      # - ./backend:/app  # For hot-reload during dev
       - ./backend/.env:/app/.env:ro  # If .env exists; otherwise use env vars above
     depends_on:
       db:
