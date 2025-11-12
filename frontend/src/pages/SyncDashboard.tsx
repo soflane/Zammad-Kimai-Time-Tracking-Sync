@@ -55,7 +55,7 @@ const Pill = ({ ok }: { ok: boolean }) => (
 
 function StatCard({ label, value, icon: Icon }: { label: string; value: React.ReactNode; icon: any }) {
   return (
-    <Card className="shadow-sm">
+    <Card className="shadow-xs">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium">{label}</CardTitle>
         <Icon className="h-4 w-4" />
@@ -1291,9 +1291,9 @@ export default function SyncDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-background to-muted/40">
+    <div className="min-h-screen bg-linear-to-b from-background to-muted/40">
       {/* Top Bar */}
-      <div className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+      <div className="sticky top-0 z-40 border-b bg-background/80 backdrop-blur-sm supports-backdrop-filter:bg-background/60">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <div className="flex items-center gap-2">
             <motion.div initial={{ rotate: -20, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }}>
@@ -1316,7 +1316,7 @@ export default function SyncDashboard() {
       <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[240px_1fr]">
         {/* Sidebar */}
         <aside className="hidden lg:block">
-          <Card className="sticky top-20 shadow-sm">
+          <Card className="sticky top-20 shadow-xs">
             <CardHeader>
               <CardTitle className="text-base">Navigation</CardTitle>
               <CardDescription>Configure, map, reconcile, audit.</CardDescription>
@@ -1441,7 +1441,7 @@ export default function SyncDashboard() {
             ) : (
               <div className="grid gap-4 md:grid-cols-2">
                 {connectors.map((c) => (
-                  <Card key={c.id} className="shadow-sm">
+                  <Card key={c.id} className="shadow-xs">
                     <CardHeader>
                     <CardTitle className="flex items-center justify-between text-base">
                       <span className="flex items-center gap-2">{c.type === 'zammad' ? <ZammadIcon className="h-4 w-4" /> : <KimaiIcon className="h-4 w-4" />} {c.name}</span>

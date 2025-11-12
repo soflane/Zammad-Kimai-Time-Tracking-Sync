@@ -45,10 +45,10 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-background via-muted/20 to-background p-4">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-background via-muted/20 to-background p-4">
       <Card className="w-full max-w-md shadow-floating border-border/50 card-hover">
         <CardHeader className="text-center space-y-4 pb-6">
-          <div className="flex items-center justify-center w-20 h-20 bg-gradient-to-br from-primary to-primary/80 rounded-full mx-auto">
+          <div className="flex items-center justify-center w-20 h-20 bg-linear-to-br from-primary to-primary/80 rounded-full mx-auto">
             <LogIn className="h-10 w-10 text-primary-foreground" />
           </div>
           <div className="space-y-1">
