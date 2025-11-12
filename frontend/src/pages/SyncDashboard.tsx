@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   ArrowRight,
   BadgeCheck,
-  CalendarClock,
   Check,
   Database,
   FileClock,
@@ -38,15 +37,13 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Progress } from "@/components/ui/progress";
 import { DialogClose } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
-import { useAuth } from "@/context/AuthContext";
 
-import { connectorService, mappingService, syncService, conflictService, auditService, reconcileService } from "@/services/api.service";
+import { connectorService, mappingService, syncService, auditService, reconcileService } from "@/services/api.service";
 import type { ValidationResponse } from "@/types";
-import type { Connector, ActivityMapping, Conflict, SyncRun, AuditLog, SyncResponse, Activity as ActivityType, DiffItem, ReconcileResponse, RowOp } from "@/types";
+import type { Connector, ActivityMapping, SyncRun, AuditLog, SyncResponse, Activity as ActivityType, ReconcileResponse, RowOp } from "@/types";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
 
 // Utility UI components
@@ -226,9 +223,9 @@ function ConnectorDialog({ item, onSuccess }: { item?: Connector; onSuccess?: ()
   const itemSettings = item?.type === 'kimai' && item?.settings ? item.settings as any : {};
   const [roundingMode, setRoundingMode] = useState<string>(itemSettings.rounding_mode || 'default');
   const [roundBegin, setRoundBegin] = useState<number>(itemSettings.round_begin || 0);
-  const [roundEnd, setRoundEnd] = useState<number>(itemSettings.round_end || 0);
+  const [roundEnd] = useState<number>(itemSettings.round_end || 0);
   const [roundDuration, setRoundDuration] = useState<number>(itemSettings.round_duration || 0);
-  const [roundingDays, setRoundingDays] = useState<number[]>(itemSettings.rounding_days || [0, 1, 2, 3, 4, 5, 6]);
+  const [roundingDays] = useState<number[]>(itemSettings.rounding_days || [0, 1, 2, 3, 4, 5, 6]);
   
   const { toast } = useToast();
   const queryClient = useQueryClient();
@@ -864,7 +861,7 @@ function ReconcileSection() {
       queryClient.invalidateQueries({ queryKey: ["kpi"] });
       toast({ title: "Success", description: "Action completed successfully" });
     },
-    onError: (error: any, variables, context) => {
+    onError: (error: any, _variables, context) => {
       // Rollback on error
       if (context?.previousData) {
         queryClient.setQueryData(["reconcile", activeFilter], context.previousData);
@@ -1125,8 +1122,6 @@ function AuditLogs({ runId }: { runId: number }) {
 // Main Dashboard Component
 export default function SyncDashboard() {
   const [query, setQuery] = useState("");
-  const [activeTab, setActiveTab] = useState("all");
-  const [selectedConflicts, setSelectedConflicts] = useState<Set<number>>(new Set());
   const [testResults, setTestResults] = useState<Record<number, { valid: boolean; message: string; timestamp: string }>>({});
   const [pendingTests, setPendingTests] = useState<Set<number>>(new Set());
   const [testAllPending, setTestAllPending] = useState(false);
@@ -1159,11 +1154,6 @@ export default function SyncDashboard() {
     queryFn: () => syncService.getSyncHistory(statusFilter, startDate, endDate, search),
   });
 
-  const { data: conflicts = [] } = useQuery<Conflict[]>({
-    queryKey: ["conflicts"],
-    queryFn: conflictService.getAll
-  });
-
   const { data: auditLogs = [] } = useQuery<AuditLog[]>({
     queryKey: ["auditLogs", auditActionType, auditSearch, auditStartDate, auditEndDate, ipFilter],
     queryFn: () => auditService.getAuditLogs({ 
@@ -1186,21 +1176,6 @@ export default function SyncDashboard() {
     [mappings, query]
   );
 
-  const filteredConflicts = useMemo(() => {
-    switch (activeTab) {
-      case "all":
-        return conflicts;
-      case "conflicts":
-        return conflicts.filter(c => c.resolution_status === 'pending');
-      case "missing":
-        return conflicts.filter(c => c.conflict_type?.includes('missing'));
-      case "matches":
-        return conflicts.filter(c => c.conflict_type?.includes('match'));
-      default:
-        return conflicts;
-    }
-  }, [conflicts, activeTab]);
-
   // Compute KPIs
   const kpi = useMemo(() => [
     { label: "Active connectors", value: connectors.filter(c => c.is_active).length, icon: Link2 },
@@ -1220,33 +1195,6 @@ export default function SyncDashboard() {
   );
 
   const chartData = kpiData?.weekly_minutes || [];
-
-  // Resolve mutation for conflicts
-  const resolveMutation = useMutation({
-    mutationFn: (conflictId: number) => conflictService.resolve(conflictId, { resolution_status: 'resolved', resolution_action: 'manual' }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["conflicts"] });
-      queryClient.invalidateQueries({ queryKey: ["kpi"] });
-      toast({ title: "Success", description: "Conflict resolved" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to resolve conflict", variant: "destructive" });
-    }
-  });
-
-  // Bulk apply
-  const bulkResolveMutation = useMutation({
-    mutationFn: (ids: number[]) => Promise.all(ids.map(id => conflictService.resolve(id, { resolution_status: 'resolved', resolution_action: 'bulk' }))),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["conflicts"] });
-      queryClient.invalidateQueries({ queryKey: ["kpi"] });
-      setSelectedConflicts(new Set());
-      toast({ title: "Success", description: "Selected conflicts resolved" });
-    },
-    onError: () => {
-      toast({ title: "Error", description: "Failed to resolve conflicts", variant: "destructive" });
-    }
-  });
 
   // Run sync mutation
   const runSyncMutation = useMutation<SyncResponse>({

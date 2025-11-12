@@ -206,7 +206,7 @@ export const auditService = {
 
 // Reconcile
 export const reconcileService = {
-  getDiff: async (filter: 'conflicts' | 'missing', page: number = 1, pageSize: number = 50) => {
+  getDiff: async (filter: 'conflicts' | 'missing', page: number = 1, pageSize: number = 50): Promise<ReconcileResponse> => {
     const response = await api.get('/reconcile/', {
       params: { filter, page, pageSize }
     })
