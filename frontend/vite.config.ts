@@ -11,13 +11,6 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
-  optimizeDeps: {
-    exclude: [
-      'axios',
-      'lucide-react',
-      '@tanstack/react-query'
-    ]
-  },
   server: {
     port: 5173,
     proxy: {

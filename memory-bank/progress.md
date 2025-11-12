@@ -229,3 +229,10 @@
     - Ready for future React 19 migration (types already compatible)
   - **Files Modified**: `frontend/package.json` (18 dependency version updates)
   - **Compliance**: All updates backward compatible; application builds and runs successfully; no breaking changes to functionality.
+  - **Post-Update Fix - React Router 7 Cookie Module Error**:
+    - **Issue**: After updating to React Router 7.9.5, blank page with console error: `Uncaught SyntaxError: The requested module '/node_modules/cookie/dist/index.js' does not provide an export named 'parse'`
+    - **Root Cause**: The `vite.config.ts` had `react-router-dom` in the `optimizeDeps.exclude` array. By excluding RRD from Vite's dependency pre-bundling, the dev server tried to perform strict ESM named imports on the CommonJS `cookie` package (a dependency of React Router 7), causing the module resolution error. Production builds worked because Rollup properly transformed CommonJS dependencies.
+    - **Fix**: Removed the entire `optimizeDeps.exclude` configuration from `vite.config.ts`, allowing Vite to automatically handle all dependency pre-bundling and properly transform CommonJS packages to ESM format.
+    - **Files Modified**: `frontend/vite.config.ts` (removed optimizeDeps section)
+    - **Result**: Dev server now properly pre-bundles all dependencies including React Router 7 and its CommonJS dependencies; blank page issue resolved.
+    - **Lesson**: When using libraries with CommonJS dependencies in Vite, avoid excluding them from optimization unless there's a specific reason, as this can break ESM named imports in development mode.
