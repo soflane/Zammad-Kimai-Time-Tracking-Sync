@@ -27,6 +27,9 @@ COPY --from=builder /usr/local/bin /usr/local/bin
 # Copy application code
 COPY . .
 
+# Fix line endings for shell script
+RUN sed -i 's/\r$//' /app/entrypoint.sh
+
 # Set execute permissions on entrypoint script (as root)
 RUN chmod +x /app/entrypoint.sh
 
