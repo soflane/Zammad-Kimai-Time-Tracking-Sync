@@ -130,7 +130,7 @@ export function ScheduleDialog() {
   // Update mutation
   const updateMutation = useMutation({
     mutationFn: (update: ScheduleUpdate) => scheduleService.update(update),
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["schedule"] });
       queryClient.invalidateQueries({ queryKey: ["syncRuns"] });
       queryClient.invalidateQueries({ queryKey: ["auditLogs"] });
