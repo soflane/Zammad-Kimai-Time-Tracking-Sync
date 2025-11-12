@@ -1,5 +1,5 @@
 import pytest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import Mock, AsyncMock, patch
 from datetime import datetime, timedelta
 import httpx
 
@@ -17,7 +17,7 @@ class TestKimaiMetadataService:
     @pytest.mark.asyncio
     async def test_get_customer_name_caches(self, service):
         with patch('httpx.AsyncClient.get') as mock_get:
-            mock_response = AsyncMock()
+            mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {"name": "Test Customer"}
             mock_get.return_value = mock_response
@@ -35,7 +35,7 @@ class TestKimaiMetadataService:
     @pytest.mark.asyncio
     async def test_get_customer_name_ttl_expires(self, service):
         with patch('httpx.AsyncClient.get') as mock_get:
-            mock_response = AsyncMock()
+            mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {"name": "Test Customer"}
             mock_get.return_value = mock_response
@@ -54,7 +54,7 @@ class TestKimaiMetadataService:
     @pytest.mark.asyncio
     async def test_get_customer_name_error_returns_none(self, service):
         with patch('httpx.AsyncClient.get') as mock_get:
-            mock_response = AsyncMock()
+            mock_response = Mock()
             mock_response.raise_for_status.side_effect = httpx.HTTPStatusError("Not Found", response=mock_response)
             mock_get.return_value = mock_response
 
@@ -129,7 +129,7 @@ class TestKimaiMetadataService:
     @pytest.mark.asyncio
     async def test_get_project_name_caches(self, service):
         with patch('httpx.AsyncClient.get') as mock_get:
-            mock_response = AsyncMock()
+            mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {"name": "Test Project"}
             mock_get.return_value = mock_response
@@ -145,7 +145,7 @@ class TestKimaiMetadataService:
     @pytest.mark.asyncio
     async def test_get_activity_name_caches(self, service):
         with patch('httpx.AsyncClient.get') as mock_get:
-            mock_response = AsyncMock()
+            mock_response = Mock()
             mock_response.raise_for_status.return_value = None
             mock_response.json.return_value = {"name": "Test Activity"}
             mock_get.return_value = mock_response
