@@ -14,7 +14,6 @@ export default defineConfig({
   optimizeDeps: {
     exclude: [
       'axios',
-      'react-router-dom',
       'lucide-react',
       '@tanstack/react-query'
     ]
