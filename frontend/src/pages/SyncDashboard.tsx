@@ -1313,7 +1313,7 @@ export default function SyncDashboard() {
       </div>
 
       {/* Body */}
-      <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[240px_1fr]">
+      <div className="mx-auto grid grid-cols-1 max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[240px_1fr]">
         {/* Sidebar */}
         <aside className="hidden lg:block">
           <Card className="sticky top-20 shadow-xs">
@@ -1516,18 +1516,18 @@ export default function SyncDashboard() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead className="w-[40%]">Source (Zammad)</TableHead>
-                      <TableHead className="w-[40%]">Target (Kimai)</TableHead>
-                      <TableHead>Billable</TableHead>
+                      <TableHead className="w-full sm:w-[40%]">Source (Zammad)</TableHead>
+                      <TableHead className="w-full sm:w-[40%]">Target (Kimai)</TableHead>
+                      <TableHead className="hidden sm:table-cell">Billable</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {filteredMappings.map((row) => (
                       <TableRow key={row.id}>
-                        <TableCell>{row.zammad_type_name}</TableCell>
-                        <TableCell>{row.kimai_activity_name}</TableCell>
-                        <TableCell>
+                        <TableCell className="break-words">{row.zammad_type_name}</TableCell>
+                        <TableCell className="break-words">{row.kimai_activity_name}</TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <Badge variant="secondary">N/A</Badge>
                         </TableCell>
                         <TableCell className="text-right">
