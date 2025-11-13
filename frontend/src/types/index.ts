@@ -161,10 +161,12 @@ export interface SyncRun {
 export interface AuditLog {
   id: number
   action: string
-  entity_type: string
+  entity_type?: string
   entity_id?: number
+  user?: string
   user_id?: number
   changes?: Record<string, any>
+  details?: Record<string, any>
   ip_address?: string
   user_agent?: string
   created_at: string
@@ -276,4 +278,14 @@ export interface ScheduleUpdate {
   concurrency?: 'skip' | 'queue'
   notifications?: boolean
   enabled?: boolean
+}
+
+export interface PaginatedAuditLogs {
+  data: AuditLog[];
+  total: number;
+}
+
+export interface PaginatedSyncRuns {
+  data: SyncRun[];
+  total: number;
 }

@@ -27,3 +27,9 @@ class AuditLogInDB(AuditLogBase):
 
     class Config:
         from_attributes = True
+
+from typing import List
+
+class PaginatedAuditLogs(BaseModel):
+    data: List[AuditLogInDB]
+    total: int

@@ -1,11 +1,10 @@
 from typing import List, Annotated, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
-
+from sqlalchemy import and_, func
 from app.database import get_db
 from app.models.audit_log import AuditLog
-from app.schemas.audit import AuditLogInDB
+from app.schemas.audit import AuditLogInDB, PaginatedAuditLogs
 from app.schemas.auth import User
 from app.auth import get_current_active_user
 
@@ -13,7 +12,7 @@ router = APIRouter(
     tags=["audit-logs"]
 )
 
-@router.get("/", response_model=List[AuditLogInDB])
+@router.get("/", response_model=PaginatedAuditLogs)
 async def read_audit_logs(
     skip: int = 0,
     limit: int = 100,
@@ -33,15 +32,14 @@ async def read_audit_logs(
     if action:
         query = query.filter(AuditLog.action == action)
     
-    # Filter by action type (access vs sync)
-    if action_type:
-        if action_type == 'access':
-            # Access logs: everything NOT starting with 'sync'
-            query = query.filter(~AuditLog.action.like('sync%'))
-        elif action_type == 'sync':
-            # Sync logs: actions starting with 'sync'
-            query = query.filter(AuditLog.action.like('sync%'))
-        # 'all' or invalid values: no filter
+    # Filter by action type
+    if action_type == 'access':
+        # Access logs: everything NOT starting with 'sync'
+        query = query.filter(~AuditLog.action.like('sync%'))
+    elif action_type == 'sync':
+        # Sync logs: actions starting with 'sync'
+        query = query.filter(AuditLog.action.like('sync%'))
+    # For 'all' or other values: no filter applied
     
     # Filter by IP address
     if ip_address:
@@ -59,8 +57,14 @@ async def read_audit_logs(
     if user:
         query = query.filter(AuditLog.user == user)
     
-    logs = query.offset(skip).limit(limit).all()
-    return logs
+    # Get all logs for total (efficient for small datasets)
+    all_logs = query.all()
+    total = len(all_logs)
+    print(f"DEBUG: action_type={action_type}, total={total}, skip={skip}, limit={limit}")  # Temporary debug
+    
+    # Apply pagination
+    logs = all_logs[skip:skip + limit]
+    return PaginatedAuditLogs(data=logs, total=total)
 
 @router.get("/{log_id}", response_model=AuditLogInDB)
 async def read_audit_log(

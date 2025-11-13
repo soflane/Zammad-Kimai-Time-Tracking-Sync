@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Activity,
@@ -41,9 +41,18 @@ import { DialogClose } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 
+import {
+  Pagination,
+  PaginationContent,
+  PaginationEllipsis,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious
+} from "@/components/ui/pagination"
+
 import { connectorService, mappingService, syncService, auditService, reconcileService } from "@/services/api.service";
-import type { ValidationResponse } from "@/types";
-import type { Connector, ActivityMapping, SyncRun, AuditLog, SyncResponse, Activity as ActivityType, ReconcileResponse, RowOp } from "@/types";
+import type { ValidationResponse, Connector, ActivityMapping, Activity as ActivityType, SyncRun, SyncResponse, AuditLog, ReconcileResponse, RowOp, PaginatedSyncRuns, PaginatedAuditLogs } from "@/types";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
 
 // Utility UI components
@@ -1096,19 +1105,19 @@ function ReconcileSection() {
 
 // AuditLogs Component
 function AuditLogs({ runId }: { runId: number }) {
-  const { data: logs = [] } = useQuery({
+  const { data: logs = {data: [], total: 0} } = useQuery<PaginatedAuditLogs>({
     queryKey: ["auditLogs", runId],
-    queryFn: () => auditService.getAuditLogs({ limit: 20 }),
+    queryFn: () => auditService.getAuditLogs({ skip: 0, limit: 20 }),
   });
 
   return (
     <div className="space-y-2">
       <h4 className="font-medium">Logs for Run #{runId}</h4>
-      {logs.length === 0 ? (
+      {logs.data.length === 0 ? (
         <p className="text-sm text-muted-foreground">No logs available.</p>
       ) : (
         <ul className="text-sm space-y-1">
-          {logs.map((log: AuditLog, index: number) => (
+          {logs.data.map((log: AuditLog, index: number) => (
             <li key={index} className="text-xs text-muted-foreground">
               {log.action} - {log.created_at}
             </li>
@@ -1135,6 +1144,24 @@ export default function SyncDashboard() {
   const [auditStartDate, setAuditStartDate] = useState("");
   const [auditEndDate, setAuditEndDate] = useState("");
   const [ipFilter, setIpFilter] = useState("");
+
+
+  // Pagination for History
+  const [historyPage, setHistoryPage] = useState(1)
+  const [historyPageSize] = useState(5)
+
+  // Pagination for Audit
+  const [auditPage, setAuditPage] = useState(1)
+  const [auditPageSize] = useState(5)
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [statusFilter, search, startDate, endDate]);
+
+  useEffect(() => {
+    setAuditPage(1);
+  }, [auditActionType, auditSearch, auditStartDate, auditEndDate, ipFilter]);
+
   const { toast } = useToast();
   const queryClient = useQueryClient();
 
@@ -1149,15 +1176,17 @@ export default function SyncDashboard() {
     queryFn: mappingService.getAll
   });
 
-  const { data: syncRuns = [] } = useQuery<SyncRun[]>({
-    queryKey: ["syncRuns", statusFilter, search, startDate, endDate],
-    queryFn: () => syncService.getSyncHistory(statusFilter, startDate, endDate, search),
+  const { data: syncRunsData } = useQuery<PaginatedSyncRuns>({
+    queryKey: ["syncRuns", historyPage, historyPageSize, statusFilter, search, startDate, endDate],
+    queryFn: () => syncService.getSyncHistory(historyPage, historyPageSize, statusFilter, startDate, endDate, search),
   });
+  const syncRuns = syncRunsData?.data || [];
 
-  const { data: auditLogs = [] } = useQuery<AuditLog[]>({
-    queryKey: ["auditLogs", auditActionType, auditSearch, auditStartDate, auditEndDate, ipFilter],
+  const { data: auditLogs = {data: [], total: 0} } = useQuery<PaginatedAuditLogs>({
+    queryKey: ["auditLogs", auditActionType, auditSearch, auditStartDate, auditEndDate, ipFilter, auditPage, auditPageSize],
     queryFn: () => auditService.getAuditLogs({ 
-      limit: 50, 
+      skip: (auditPage - 1) * auditPageSize,
+      limit: auditPageSize, 
       action_type: auditActionType, 
       start_date: auditStartDate, 
       end_date: auditEndDate, 
@@ -1693,6 +1722,75 @@ export default function SyncDashboard() {
                         </Button>
                       </div>
                     )}
+                    {syncRuns.length > 0 && (
+                      <div className="flex items-center justify-between mt-4">
+                        <div className="text-sm text-muted-foreground">
+                          Showing {((historyPage - 1) * historyPageSize) + 1} to {Math.min(historyPage * historyPageSize, syncRunsData?.total || 0)} of {syncRunsData?.total || 0} results
+                        </div>
+                        <Pagination>
+                          <PaginationContent>
+                            <PaginationItem>
+                              <PaginationPrevious 
+                                onClick={() => setHistoryPage(p => Math.max(1, p - 1))} 
+                                className={historyPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                              />
+                            </PaginationItem>
+                            {historyPage > 2 && (
+                              <>
+                                <PaginationItem>
+                                  <PaginationLink onClick={() => setHistoryPage(1)} className="cursor-pointer">
+                                    1
+                                  </PaginationLink>
+                                </PaginationItem>
+                                <PaginationItem>
+                                  <PaginationEllipsis />
+                                </PaginationItem>
+                              </>
+                            )}
+                            {historyPage > 1 && (
+                              <PaginationItem>
+                                <PaginationLink onClick={() => setHistoryPage(historyPage - 1)} className="cursor-pointer">
+                                  {historyPage - 1}
+                                </PaginationLink>
+                              </PaginationItem>
+                            )}
+                            <PaginationItem>
+                              <PaginationLink className="bg-primary text-primary-foreground">
+                                {historyPage}
+                              </PaginationLink>
+                            </PaginationItem>
+                            {historyPage < Math.ceil((syncRunsData?.total || 0) / historyPageSize) && (
+                              <PaginationItem>
+                                <PaginationLink onClick={() => setHistoryPage(historyPage + 1)} className="cursor-pointer">
+                                  {historyPage + 1}
+                                </PaginationLink>
+                              </PaginationItem>
+                            )}
+                            {historyPage < Math.ceil((syncRunsData?.total || 0) / historyPageSize) - 1 && (
+                              <>
+                                <PaginationItem>
+                                  <PaginationEllipsis />
+                                </PaginationItem>
+                                <PaginationItem>
+                                  <PaginationLink 
+                                    onClick={() => setHistoryPage(Math.ceil((syncRunsData?.total || 0) / historyPageSize))} 
+                                    className="cursor-pointer"
+                                  >
+                                    {Math.ceil((syncRunsData?.total || 0) / historyPageSize)}
+                                  </PaginationLink>
+                                </PaginationItem>
+                              </>
+                            )}
+                            <PaginationItem>
+                              <PaginationNext 
+                                onClick={() => setHistoryPage(p => p < Math.ceil((syncRunsData?.total || 0) / historyPageSize) ? p + 1 : p)} 
+                                className={historyPage >= Math.ceil((syncRunsData?.total || 0) / historyPageSize) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                              />
+                            </PaginationItem>
+                          </PaginationContent>
+                        </Pagination>
+                      </div>
+                    )}
                   </TabsContent>
                   <TabsContent value="audit-logs" className="space-y-4">
                     <div className="flex items-center gap-2">
@@ -1711,22 +1809,27 @@ export default function SyncDashboard() {
                       <Input type="date" value={auditEndDate} onChange={(e) => setAuditEndDate(e.target.value)} className="w-40" />
                       <Input placeholder="IP Address" value={ipFilter} onChange={(e) => setIpFilter(e.target.value)} className="w-32" />
                     </div>
-                    <Button variant="outline" onClick={async () => {
-                      try {
-                        const blob = await auditService.export('csv');
-                        const url = URL.createObjectURL(blob);
-                        const a = document.createElement('a');
-                        a.href = url;
-                        a.download = 'audit-logs.csv';
-                        a.click();
-                        URL.revokeObjectURL(url);
-                        toast({ title: "Export started", description: "Download will begin shortly" });
-                      } catch (error) {
-                        toast({ title: "Export failed", description: "Failed to generate export", variant: "destructive" });
-                      }
-                    }}>
-                      Export CSV
-                    </Button>
+                    <div className="flex items-center gap-2">
+                      <Button variant="outline" onClick={() => queryClient.invalidateQueries({ queryKey: ["auditLogs"] })}>
+                        Refresh
+                      </Button>
+                      <Button variant="outline" onClick={async () => {
+                        try {
+                          const blob = await auditService.export('csv');
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement('a');
+                          a.href = url;
+                          a.download = 'audit-logs.csv';
+                          a.click();
+                          URL.revokeObjectURL(url);
+                          toast({ title: "Export started", description: "Download will begin shortly" });
+                        } catch (error) {
+                          toast({ title: "Export failed", description: "Failed to generate export", variant: "destructive" });
+                        }
+                      }}>
+                        Export CSV
+                      </Button>
+                    </div>
                     <div className="rounded-md border">
                       <Table>
                         <TableHeader>
@@ -1739,7 +1842,7 @@ export default function SyncDashboard() {
                           </TableRow>
                         </TableHeader>
                         <TableBody>
-                          {auditLogs.map((log) => (
+                          {auditLogs.data.map((log: AuditLog) => (
                             <TableRow key={log.id}>
                               <TableCell className="font-medium">
                                 <Badge variant={log.action.startsWith('sync') ? "default" : "secondary"}>
@@ -1753,7 +1856,7 @@ export default function SyncDashboard() {
                                   <span className="text-sm text-muted-foreground">N/A</span>
                                 )}
                               </TableCell>
-                              <TableCell>{(log as any).user || "System"}</TableCell>
+                              <TableCell>{log.user || "System"}</TableCell>
                               <TableCell>
                                 {log.ip_address ? (
                                   <TooltipProvider>
@@ -1778,11 +1881,78 @@ export default function SyncDashboard() {
                         </TableBody>
                       </Table>
                     </div>
-                    {auditLogs.length === 0 && (
+                    {auditLogs.data.length === 0 && (
                       <div className="text-center text-muted-foreground py-8">
                         <p>No audit logs match the filter. Perform actions (e.g., sync, configure connectors) to generate logs.</p>
                       </div>
                     )}
+                    <div className="flex items-center justify-between mt-4">
+                      <div className="text-sm text-muted-foreground">
+                        Showing {((auditPage - 1) * auditPageSize) + 1} to {Math.min(auditPage * auditPageSize, auditLogs.total)} of {auditLogs.total} results
+                      </div>
+                      <Pagination>
+                        <PaginationContent>
+                          <PaginationItem>
+                            <PaginationPrevious 
+                              onClick={() => setAuditPage(p => Math.max(1, p - 1))} 
+                              className={auditPage === 1 ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                            />
+                          </PaginationItem>
+                          {auditPage > 2 && (
+                            <>
+                              <PaginationItem>
+                                <PaginationLink onClick={() => setAuditPage(1)} className="cursor-pointer">
+                                  1
+                                </PaginationLink>
+                              </PaginationItem>
+                              <PaginationItem>
+                                <PaginationEllipsis />
+                              </PaginationItem>
+                            </>
+                          )}
+                          {auditPage > 1 && (
+                            <PaginationItem>
+                              <PaginationLink onClick={() => setAuditPage(auditPage - 1)} className="cursor-pointer">
+                                {auditPage - 1}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )}
+                          <PaginationItem>
+                            <PaginationLink className="bg-primary text-primary-foreground">
+                              {auditPage}
+                            </PaginationLink>
+                          </PaginationItem>
+                          {auditPage < Math.ceil(auditLogs.total / auditPageSize) && (
+                            <PaginationItem>
+                              <PaginationLink onClick={() => setAuditPage(auditPage + 1)} className="cursor-pointer">
+                                {auditPage + 1}
+                              </PaginationLink>
+                            </PaginationItem>
+                          )}
+                          {auditPage < Math.ceil(auditLogs.total / auditPageSize) - 1 && (
+                            <>
+                              <PaginationItem>
+                                <PaginationEllipsis />
+                              </PaginationItem>
+                              <PaginationItem>
+                                <PaginationLink 
+                                  onClick={() => setAuditPage(Math.ceil(auditLogs.total / auditPageSize))} 
+                                  className="cursor-pointer"
+                                >
+                                  {Math.ceil(auditLogs.total / auditPageSize)}
+                                </PaginationLink>
+                              </PaginationItem>
+                            </>
+                          )}
+                          <PaginationItem>
+                            <PaginationNext 
+                              onClick={() => setAuditPage(p => p < Math.ceil(auditLogs.total / auditPageSize) ? p + 1 : p)} 
+                              className={auditPage >= Math.ceil(auditLogs.total / auditPageSize) ? 'pointer-events-none opacity-50' : 'cursor-pointer'}
+                            />
+                          </PaginationItem>
+                        </PaginationContent>
+                      </Pagination>
+                    </div>
                   </TabsContent>
                 </Tabs>
               </CardContent>

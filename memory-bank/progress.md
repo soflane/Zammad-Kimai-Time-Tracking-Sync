@@ -236,3 +236,26 @@
     - **Files Modified**: `frontend/vite.config.ts` (removed optimizeDeps section)
     - **Result**: Dev server now properly pre-bundles all dependencies including React Router 7 and its CommonJS dependencies; blank page issue resolved.
     - **Lesson**: When using libraries with CommonJS dependencies in Vite, avoid excluding them from optimization unless there's a specific reason, as this can break ESM named imports in development mode.
+
+- **Fixed Audit Pagination for "All" Filter (November 2025)**:
+  - **Goal**: Resolve issue where selecting "all" in audit logs filter shows only one page (5 logs), while "access" and "sync" filters paginate correctly across multiple pages.
+  - **Root Cause**: Potential ambiguity in backend filter logic for `action_type="all"` (no explicit handling), leading to incorrect total count calculation. Frontend pagination relies on backend `total` for rendering pages; if total ≤ pageSize (5), only one page shows.
+  - **Backend Fixes** (`backend/app/api/v1/endpoints/audit_logs.py`):
+    - Made `action_type` handling explicit with `if action_type == 'access': ... elif action_type == 'sync': ...` (no filter for "all" or others).
+    - Updated total count to use `func.count(AuditLog.id)` for precision (avoids any count(*) issues).
+    - Ensured total is calculated *before* offset/limit on the filtered query.
+    - Imported `AuditLog` model explicitly for clarity.
+  - **Frontend Polish** (`frontend/src/pages/SyncDashboard.tsx`):
+    - Added "Refresh" button next to audit filters to manually invalidate and refetch queries (via `queryClient.invalidateQueries({ queryKey: ["auditLogs"] })`), aiding debugging and ensuring fresh data.
+    - No other changes needed; existing TanStack Query setup (queryKey includes filters/pagination) and UI rendering (based on `auditLogs.total`) are correct.
+  - **Impact**:
+    - "All" now returns full unfiltered total count (sum of access + sync logs), enabling proper multi-page pagination.
+    - Other filters ("access"/"sync") unchanged and continue to work as before.
+    - Explicit logic reduces future bugs; Refresh button improves UX for verification.
+    - Backward compatible; no schema/API changes.
+  - **Testing**: 
+    - Backend: Direct API calls (e.g., curl) with `?action_type=all&skip=0&limit=5` → total >5, subsequent pages return next logs.
+    - Frontend: Switch to "all" → multiple pages if >5 logs; Refresh refetches correctly; totals match backend.
+    - Edge cases: Empty DB (total=0), combined filters (e.g., all + date range), large datasets.
+  - **Files Modified**: `backend/app/api/v1/endpoints/audit_logs.py` (filter logic, count precision), `frontend/src/pages/SyncDashboard.tsx` (added Refresh button).
+  - **Compliance**: Enhances audit functionality; no breaking changes; production ready.

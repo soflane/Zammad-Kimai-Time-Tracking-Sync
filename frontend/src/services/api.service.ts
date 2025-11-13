@@ -18,7 +18,9 @@ import type {
   ValidationResponse,
   Activity,
   RowOp,
-  ReconcileResponse
+  ReconcileResponse,
+  PaginatedAuditLogs,
+  PaginatedSyncRuns
 } from '@/types'
 
 // Authentication
@@ -147,8 +149,9 @@ export const syncService = {
     return response.data
   },
 
-  getSyncHistory: async (status?: string, startDate?: string, endDate?: string, search?: string): Promise<SyncRun[]> => {
-    const params: any = {}
+  getSyncHistory: async (page: number = 1, pageSize: number = 20, status?: string, startDate?: string, endDate?: string, search?: string): Promise<PaginatedSyncRuns> => {
+    const skip = (page - 1) * pageSize
+    const params: any = { skip, limit: pageSize }
     if (status) params.status = status
     if (startDate) params.start_date = startDate
     if (endDate) params.end_date = endDate
@@ -191,7 +194,7 @@ export const auditService = {
     start_date?: string
     end_date?: string
     user?: string
-  }): Promise<AuditLog[]> => {
+  }): Promise<PaginatedAuditLogs> => {
     const response = await api.get('/audit-logs/', { params })
     return response.data
   },

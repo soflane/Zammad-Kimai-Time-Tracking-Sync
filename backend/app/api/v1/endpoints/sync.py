@@ -13,7 +13,7 @@ from app.services.normalizer import NormalizerService
 from app.services.reconciler import ReconciliationService
 from app.models.connector import Connector as DBConnector
 from app.models.sync_run import SyncRun
-from app.schemas.sync import SyncRequest, SyncResponse
+from app.schemas.sync import SyncRequest, SyncResponse, PaginatedSyncRuns, SyncRunResponse
 from app.schemas.auth import User
 from app.auth import get_current_active_user
 from app.utils.encrypt import decrypt_data
@@ -170,7 +170,7 @@ async def run_sync(
             error_detail=error_msg
         )
 
-@router.get("/runs", response_model=list[dict])
+@router.get("/runs", response_model=PaginatedSyncRuns)
 async def get_sync_runs(
     skip: int = 0,
     limit: int = 20,
@@ -196,24 +196,28 @@ async def get_sync_runs(
                 SyncRun.error_message.like(f"%{search}%")
             )
         )
+    total = q.count()
     sync_runs = q.offset(skip).limit(limit).all()
-    return [
-        {
-            "id": sr.id,
-            "trigger_type": sr.trigger_type,
-            "started_at": sr.start_time.isoformat() if sr.start_time else None,
-            "ended_at": sr.end_time.isoformat() if sr.end_time else None,
-            "status": sr.status,
-            "entries_fetched": sr.entries_fetched,
-            "entries_synced": sr.entries_synced,
-            "entries_already_synced": sr.entries_already_synced,
-            "entries_skipped": sr.entries_skipped,
-            "entries_failed": sr.entries_failed,
-            "conflicts_detected": sr.conflicts_detected,
-            "error_message": sr.error_message
-        }
-        for sr in sync_runs
-    ]
+    return PaginatedSyncRuns(
+        data=[
+            {
+                "id": sr.id,
+                "trigger_type": sr.trigger_type,
+                "started_at": sr.start_time.isoformat() if sr.start_time else None,
+                "ended_at": sr.end_time.isoformat() if sr.end_time else None,
+                "status": sr.status,
+                "entries_fetched": sr.entries_fetched,
+                "entries_synced": sr.entries_synced,
+                "entries_already_synced": sr.entries_already_synced,
+                "entries_skipped": sr.entries_skipped,
+                "entries_failed": sr.entries_failed,
+                "conflicts_detected": sr.conflicts_detected,
+                "error_message": sr.error_message
+            }
+            for sr in sync_runs
+        ],
+        total=total
+    )
 
 
 @router.get("/kpi")
