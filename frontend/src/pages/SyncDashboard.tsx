@@ -1148,11 +1148,10 @@ export default function SyncDashboard() {
 
   // Pagination for History
   const [historyPage, setHistoryPage] = useState(1)
-  const [historyPageSize] = useState(5)
-
+  const [historyPageSize] = useState(10)
   // Pagination for Audit
   const [auditPage, setAuditPage] = useState(1)
-  const [auditPageSize] = useState(5)
+  const [auditPageSize] = useState(10)
 
   useEffect(() => {
     setHistoryPage(1);
