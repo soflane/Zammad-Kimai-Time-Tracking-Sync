@@ -5,7 +5,7 @@ python-multipart==0.0.20
 
 # Database
 sqlalchemy==2.0.44
-alembic==1.17.1
+alembic==1.17.2
 psycopg2-binary==2.9.11
 
 # Data Validation
